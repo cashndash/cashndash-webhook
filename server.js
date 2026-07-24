@@ -3,7 +3,7 @@ import fetch from "node-fetch";
 
 const app = express();
 
-// Vapi sends JSON → MUST parse JSON
+// Vapi sends JSON -> MUST parse JSON
 app.use(express.json());
 
 // StarIO.Online endpoint for your printer
@@ -33,49 +33,46 @@ app.post("/print", async (req, res) => {
         ? JSON.parse(toolCall.function.arguments)
         : toolCall.function.arguments;
 
-    const markup = args?.markup;
+    const rawMarkup = args?.markup || args?.text || args?.content;
 
-    if (!markup) {
+    if (!rawMarkup) {
       return res.status(400).json({
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
-    // Convert markup into StarPRNT JSON commands
-    const starPrntPayload = {
-      print: [
-        { type: "text", data: markup + "\n\n" },
-        { type: "cut", action: "full" }
-      ]
-    };
+    // Format text with Star Document Markup header and cut command
+    const formattedMarkup = `${rawMarkup}\n\n[cut]`;
 
-    // Send JSON commands to StarIO.Online
+    // Send RAW Star Document Markup to StarIO.Online
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "text/vnd.star.markup",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: JSON.stringify(starPrntPayload)
+      body: formattedMarkup
     });
 
     const starText = await response.text();
 
-    // If StarIO failed → return error to Vapi
+    // If StarIO failed -> return error to Vapi
     if (!response.ok) {
+      console.error("StarIO Error:", response.status, starText);
       return res.status(502).json({
         results: [{ toolCallId, result: `star_error_${response.status}` }],
         starResponse: starText
       });
     }
 
-    // SUCCESS → Vapi sees "printed"
+    // SUCCESS -> Vapi sees "printed"
     return res.json({
       results: [{ toolCallId, result: "printed" }],
       starResponse: starText
     });
 
   } catch (err) {
+    console.error("Server Error:", err);
     return res.status(500).json({
       results: [{ toolCallId, result: "server_error" }],
       error: err.message
@@ -83,7 +80,7 @@ app.post("/print", async (req, res) => {
   }
 });
 
-// Simple GET endpoint
+// Simple GET endpoint to verify server status
 app.get("/", (req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
