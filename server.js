@@ -2,65 +2,55 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
+
+// Vapi sends JSON → MUST parse JSON
 app.use(express.json());
 
 // StarIO.Online endpoint for your printer
 const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
 
-// Your StarIO.Online API Key (set this in Render env vars)
+// Your StarIO.Online API Key
 const STAR_API_KEY = process.env.STAR_API_KEY;
-
-app.get("/", (req, res) => {
-  res.send("Cash N Dash Webhook Running");
-});
 
 // MAIN PRINT ENDPOINT FOR VAPI TOOL CALLS
 app.post("/print", async (req, res) => {
-  let toolCallId = undefined;
+  let toolCallId = null;
 
   try {
-    // Vapi tool-calls payload: req.body.message.toolCallList[]
     const toolCall = req.body?.message?.toolCallList?.[0];
+
     if (!toolCall) {
       return res.status(400).json({
-        ok: false,
-        error: "No tool call found in request body at message.toolCallList[0]"
+        error: "No tool call found in request"
       });
     }
 
     toolCallId = toolCall.id;
 
-    // Vapi may send function.arguments as a STRINGIFIED JSON or as an object.
+    // Parse arguments (string OR object)
     const args =
-      typeof toolCall.function?.arguments === "string"
+      typeof toolCall.function.arguments === "string"
         ? JSON.parse(toolCall.function.arguments)
-        : toolCall.function?.arguments;
+        : toolCall.function.arguments;
 
     const markup = args?.markup;
-    if (!markup || typeof markup !== "string") {
+
+    if (!markup) {
       return res.status(400).json({
-        ok: false,
-        error: "Missing or invalid markup",
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
-    // Build StarXpand payload: print text then cut
+    // Convert markup into StarXpand JSON commands
     const starXpandPayload = {
       commands: [
-        {
-          type: "text",
-          content: markup + "\n\n"
-        },
-        {
-          type: "cut",
-          style: "full" // "partial" is also an option depending on your setup
-        }
+        { type: "text", content: markup + "\n\n" },
+        { type: "cut", style: "full" }
       ]
     };
 
-    // Send to StarIO.Online
-    const starResp = await fetch(STAR_ENDPOINT, {
+    // Send JSON commands to StarIO.Online
+    const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -69,31 +59,33 @@ app.post("/print", async (req, res) => {
       body: JSON.stringify(starXpandPayload)
     });
 
-    const starText = await starResp.text();
+    const starText = await response.text();
 
-    // IMPORTANT: Don't claim "printed" if StarIO.Online returned an error
-    if (!starResp.ok) {
+    // If StarIO failed → return error to Vapi
+    if (!response.ok) {
       return res.status(502).json({
-        ok: false,
-        error: `StarIO.Online error: ${starResp.status}`,
-        starResponse: starText,
-        results: [{ toolCallId, result: `star_error_${starResp.status}` }]
+        results: [{ toolCallId, result: `star_error_${response.status}` }],
+        starResponse: starText
       });
     }
 
-    // REQUIRED: return tool result so Vapi knows it succeeded
+    // SUCCESS → Vapi sees "printed"
     return res.json({
-      ok: true,
       results: [{ toolCallId, result: "printed" }],
       starResponse: starText
     });
+
   } catch (err) {
     return res.status(500).json({
-      ok: false,
-      error: err?.message || String(err),
-      results: toolCallId ? [{ toolCallId, result: "server_error" }] : []
+      results: [{ toolCallId, result: "server_error" }],
+      error: err.message
     });
   }
+});
+
+// Simple GET endpoint
+app.get("/", (req, res) => {
+  res.send("Cash N Dash Webhook Running");
 });
 
 // Start server
