@@ -29,17 +29,28 @@ app.post("/print", async (req, res) => {
     const markup = toolCall.function.arguments.markup;
     const toolCallId = toolCall.id;
 
-    // ADD CUT COMMAND at the end of the receipt
-    const markupWithCut = markup + "\n\n<CUT type=\"full\">";
+    // Convert markup into StarXpand JSON commands
+    const starXpandPayload = {
+      commands: [
+        {
+          type: "text",
+          content: markup + "\n\n"
+        },
+        {
+          type: "cut",
+          style: "full"
+        }
+      ]
+    };
 
-    // Send markup + cut to StarIO.Online
+    // Send JSON commands to StarIO.Online
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
-        "Content-Type": "text/vnd.star.markup",
+        "Content-Type": "application/json",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: markupWithCut
+      body: JSON.stringify(starXpandPayload)
     });
 
     const starText = await response.text();
