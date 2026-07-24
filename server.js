@@ -42,24 +42,22 @@ app.post("/print", async (req, res) => {
     }
 
     // Format template using Star Document Markup commands:
-    // [align: center] -> Center alignment
-    // [bold: on] -> Enable bold text
-    // [mag: w 2; h 2] -> 2x bigger font width & height
-    // [cut] -> Auto cut receipt
+    // [mag: w 2; h 2] -> Store title (Large 2x width & 2x height)
+    // [mag: w 1; h 2] -> Order items & details (Taller, slightly larger font)
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]STORE CASH N DASH[mag][bold: off]
 
 [align: left]
 ********************************
-[bold: on]ORDER DETAILS:[bold: off]
+[bold: on][mag: w 1; h 2]ORDER DETAILS:[mag][bold: off]
 ********************************
 
-[bold: on]${rawMarkup}[bold: off]
+[bold: on][mag: w 1; h 2]${rawMarkup}[mag][bold: off]
 
 ********************************
 [align: center]
-THANK YOU FOR YOUR ORDER!
+[mag: w 1; h 1]THANK YOU FOR YOUR ORDER!
 ********************************
 
 [cut]`;
