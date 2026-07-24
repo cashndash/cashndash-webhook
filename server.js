@@ -3,10 +3,10 @@ import fetch from "node-fetch";
 
 const app = express();
 
-// Vapi sends JSON → we MUST parse JSON
+// Vapi sends JSON → MUST parse JSON
 app.use(express.json());
 
-// Your StarIO.Online print endpoint
+// StarIO.Online endpoint for your printer
 const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
 
 // Your StarIO.Online API Key
@@ -15,7 +15,7 @@ const STAR_API_KEY = process.env.STAR_API_KEY;
 // MAIN PRINT ENDPOINT FOR VAPI TOOL CALLS
 app.post("/print", async (req, res) => {
   try {
-    // Extract tool call
+    // Extract tool call from Vapi
     const toolCall = req.body?.message?.toolCallList?.[0];
 
     if (!toolCall) {
@@ -25,23 +25,26 @@ app.post("/print", async (req, res) => {
       });
     }
 
-    // Extract markup text
+    // Extract markup text from Vapi
     const markup = toolCall.function.arguments.markup;
     const toolCallId = toolCall.id;
 
-    // Send ONLY the markup to StarIO.Online
+    // ADD CUT COMMAND at the end of the receipt
+    const markupWithCut = markup + "\n\n<CUT type=\"full\">";
+
+    // Send markup + cut to StarIO.Online
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "text/vnd.star.markup",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: markup
+      body: markupWithCut
     });
 
     const starText = await response.text();
 
-    // REQUIRED: return tool result so Vapi stops complaining
+    // REQUIRED: return tool result so Vapi knows it succeeded
     return res.json({
       results: [
         {
