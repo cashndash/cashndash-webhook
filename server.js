@@ -1,14 +1,32 @@
+import express from "express";
+import fetch from "node-fetch";
 
+const app = express();
+
+// Vapi sends JSON → we MUST parse JSON
+app.use(express.json());
+
+// Your StarIO.Online print endpoint
+const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
+
+// Your StarIO.Online API Key
+const STAR_API_KEY = process.env.STAR_API_KEY;
+
+// MAIN PRINT ENDPOINT FOR VAPI TOOL CALLS
 app.post("/print", async (req, res) => {
   try {
-    // Vapi sends JSON, not raw text
+    // Extract tool call
     const toolCall = req.body?.message?.toolCallList?.[0];
 
     if (!toolCall) {
-      return res.status(400).json({ ok: false, error: "No tool call found" });
+      return res.status(400).json({
+        ok: false,
+        error: "No tool call found in request"
+      });
     }
 
-    const markup = toolCall.function.arguments.markup;   // <-- THIS is the receipt text
+    // Extract markup text
+    const markup = toolCall.function.arguments.markup;
     const toolCallId = toolCall.id;
 
     // Send ONLY the markup to StarIO.Online
@@ -21,9 +39,9 @@ app.post("/print", async (req, res) => {
       body: markup
     });
 
-    const text = await response.text();
+    const starText = await response.text();
 
-    // MUST return this so Vapi stops complaining
+    // REQUIRED: return tool result so Vapi stops complaining
     return res.json({
       results: [
         {
@@ -31,10 +49,22 @@ app.post("/print", async (req, res) => {
           result: "printed"
         }
       ],
-      starResponse: text
+      starResponse: starText
     });
 
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({
+      ok: false,
+      error: err.message
+    });
   }
 });
+
+// Simple GET endpoint
+app.get("/", (req, res) => {
+  res.send("Cash N Dash Webhook Running");
+});
+
+// Start server
+const port = process.env.PORT || 8080;
+app.listen(port, () => console.log(`Webhook running on port ${port}`));
