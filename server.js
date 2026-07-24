@@ -41,11 +41,11 @@ app.post("/print", async (req, res) => {
       });
     }
 
-    // Convert markup into StarXpand JSON commands
-    const starXpandPayload = {
-      commands: [
-        { type: "text", content: markup + "\n\n" },
-        { type: "cut", style: "full" }
+    // Convert markup into StarPRNT JSON commands
+    const starPrntPayload = {
+      print: [
+        { type: "text", data: markup + "\n\n" },
+        { type: "cut", action: "full" }
       ]
     };
 
@@ -56,7 +56,7 @@ app.post("/print", async (req, res) => {
         "Content-Type": "application/json",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: JSON.stringify(starXpandPayload)
+      body: JSON.stringify(starPrntPayload)
     });
 
     const starText = await response.text();
