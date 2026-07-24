@@ -41,8 +41,28 @@ app.post("/print", async (req, res) => {
       });
     }
 
-    // Format text with Star Document Markup header and cut command
-    const formattedMarkup = `${rawMarkup}\n\n[cut]`;
+    // Format template using Star Document Markup commands:
+    // [align: center] -> Center alignment
+    // [bold: on] -> Enable bold text
+    // [mag: w 2; h 2] -> 2x bigger font width & height
+    // [cut] -> Auto cut receipt
+    const formattedMarkup = 
+`[align: center]
+[bold: on][mag: w 2; h 2]STORE CASH N DASH[mag][bold: off]
+
+[align: left]
+********************************
+[bold: on]ORDER DETAILS:[bold: off]
+********************************
+
+[bold: on]${rawMarkup}[bold: off]
+
+********************************
+[align: center]
+THANK YOU FOR YOUR ORDER!
+********************************
+
+[cut]`;
 
     // Send RAW Star Document Markup to StarIO.Online
     const response = await fetch(STAR_ENDPOINT, {
