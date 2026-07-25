@@ -25,16 +25,19 @@ function formatNowET() {
 }
 
 app.post("/print", async (req, res) => {
+  // Extract toolCall details immediately
   const toolCall = req.body?.message?.toolCallList?.[0];
   const toolCallId = toolCall?.id || "fallback_id";
   const toolName = toolCall?.function?.name;
 
-  try {
-    if (!toolCall) {
-      return res.status(400).json({ error: "No tool call found" });
-    }
+  if (!toolCall) {
+    return res.status(200).json({
+      results: [{ toolCallId, result: "no_tool_call_found" }]
+    });
+  }
 
-    // Safely extract arguments
+  try {
+    // Safely parse arguments (string OR object)
     let args = toolCall.function?.arguments || {};
     if (typeof args === "string") {
       try {
@@ -47,23 +50,27 @@ app.post("/print", async (req, res) => {
     // 1) Tool: get_now_et
     if (toolName === "get_now_et") {
       const now_et = formatNowET();
-      return res.json({
+      return res.status(200).json({
         results: [{ toolCallId, result: { now_et } }]
       });
     }
 
     // 2) Tool: print_star_receipt
-    // Capture content from ANY parameter Vapi might send
+    if (toolName !== "print_star_receipt") {
+      return res.status(200).json({
+        results: [{ toolCallId, result: `unknown_tool_${toolName}` }]
+      });
+    }
+
+    // Extract raw markup from any potential field name
     let rawMarkup = 
       args.markup || 
       args.content || 
       args.text || 
       args.items || 
       args.order_details || 
-      args.order ||
-      (typeof args === "string" ? args : null);
+      args.order;
 
-    // If args is an object with values, convert values to string if rawMarkup is missing
     if (!rawMarkup && typeof args === "object") {
       rawMarkup = Object.entries(args)
         .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
@@ -71,12 +78,12 @@ app.post("/print", async (req, res) => {
     }
 
     if (!rawMarkup) {
-      return res.json({
+      return res.status(200).json({
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
-    // Clean up duplicate store name or timestamp lines from Vapi
+    // Sanitize markup (remove duplicate store headers if Vapi sends them)
     rawMarkup = String(rawMarkup)
       .replace(/^Cash N Dash\s*/im, '')
       .replace(/^Timestamp:.*$/im, '')
@@ -84,7 +91,7 @@ app.post("/print", async (req, res) => {
 
     const now_et = args.now_et || formatNowET();
 
-    // FORMAT RECEIPT
+    // FORMAT RECEIPT FOR STAR PRINTER
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -108,41 +115,51 @@ ${now_et} ET
 
 [cut]`;
 
-    // Send to StarIO
+    // 4-Second Timeout to prevent Vapi from timing out
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "text/vnd.star.markup",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: formattedMarkup
+      body: formattedMarkup,
+      signal: controller.signal
     });
 
+    clearTimeout(timeout);
     const starText = await response.text();
 
     if (!response.ok) {
       console.error("StarIO Error:", response.status, starText);
-      return res.json({
+      return res.status(200).json({
         results: [{ toolCallId, result: `star_error_${response.status}` }],
         starResponse: starText
       });
     }
 
-    // SUCCESS
-    return res.json({
+    // SUCCESS -> Return result back to Vapi
+    return res.status(200).json({
       results: [{ toolCallId, result: "printed" }],
       starResponse: starText
     });
 
   } catch (err) {
     console.error("Server Error:", err);
-    return res.json({
-      results: [{ toolCallId, result: "server_error" }],
+    // Guarantees Vapi receives a valid JSON response with the exact toolCallId on failure
+    return res.status(200).json({
+      results: [{ 
+        toolCallId, 
+        result: err.name === "AbortError" ? "printer_timeout" : "server_error" 
+      }],
       error: err?.message || String(err)
     });
   }
 });
 
+// Health check
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
