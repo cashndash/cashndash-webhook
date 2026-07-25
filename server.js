@@ -25,20 +25,24 @@ function formatNowET() {
 }
 
 app.post("/print", async (req, res) => {
-  // Capture toolCallId right away so we ALWAYS return it back to Vapi
   const toolCall = req.body?.message?.toolCallList?.[0];
-  const toolCallId = toolCall?.id || null;
+  const toolCallId = toolCall?.id || "fallback_id";
   const toolName = toolCall?.function?.name;
 
-  if (!toolCall || !toolCallId) {
-    return res.status(400).json({ error: "No valid tool call or toolCallId found" });
-  }
-
   try {
-    const args =
-      typeof toolCall.function?.arguments === "string"
-        ? JSON.parse(toolCall.function.arguments || "{}")
-        : toolCall.function?.arguments || {};
+    if (!toolCall) {
+      return res.status(400).json({ error: "No tool call found" });
+    }
+
+    // Safely extract arguments
+    let args = toolCall.function?.arguments || {};
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args);
+      } catch (e) {
+        args = { content: args };
+      }
+    }
 
     // 1) Tool: get_now_et
     if (toolName === "get_now_et") {
@@ -49,27 +53,38 @@ app.post("/print", async (req, res) => {
     }
 
     // 2) Tool: print_star_receipt
-    if (toolName !== "print_star_receipt") {
-      return res.json({
-        results: [{ toolCallId, result: `unknown_tool_${toolName}` }]
-      });
+    // Capture content from ANY parameter Vapi might send
+    let rawMarkup = 
+      args.markup || 
+      args.content || 
+      args.text || 
+      args.items || 
+      args.order_details || 
+      args.order ||
+      (typeof args === "string" ? args : null);
+
+    // If args is an object with values, convert values to string if rawMarkup is missing
+    if (!rawMarkup && typeof args === "object") {
+      rawMarkup = Object.entries(args)
+        .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+        .join("\n");
     }
 
-    let rawMarkup = args?.markup || args?.text || args?.content;
     if (!rawMarkup) {
       return res.json({
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
-    // Sanitize markup (remove redundant store headers if Vapi sends them)
-    rawMarkup = rawMarkup
+    // Clean up duplicate store name or timestamp lines from Vapi
+    rawMarkup = String(rawMarkup)
       .replace(/^Cash N Dash\s*/im, '')
       .replace(/^Timestamp:.*$/im, '')
       .trim();
 
-    const now_et = args?.now_et || formatNowET();
+    const now_et = args.now_et || formatNowET();
 
+    // FORMAT RECEIPT
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -93,21 +108,16 @@ ${now_et} ET
 
 [cut]`;
 
-    // Send request to StarIO with a strict 5-second timeout controller
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
+    // Send to StarIO
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "text/vnd.star.markup",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: formattedMarkup,
-      signal: controller.signal
+      body: formattedMarkup
     });
 
-    clearTimeout(timeout);
     const starText = await response.text();
 
     if (!response.ok) {
@@ -118,7 +128,7 @@ ${now_et} ET
       });
     }
 
-    // SUCCESS -> Return exact format Vapi expects
+    // SUCCESS
     return res.json({
       results: [{ toolCallId, result: "printed" }],
       starResponse: starText
@@ -126,9 +136,8 @@ ${now_et} ET
 
   } catch (err) {
     console.error("Server Error:", err);
-    // Guarantees Vapi receives the matching toolCallId even on crash or timeout
     return res.json({
-      results: [{ toolCallId, result: err.name === 'AbortError' ? "timeout" : "server_error" }],
+      results: [{ toolCallId, result: "server_error" }],
       error: err?.message || String(err)
     });
   }
