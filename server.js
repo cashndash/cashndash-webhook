@@ -82,7 +82,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // FORMAT COMPLETE RECEIPT TEMPLATE
+        // FORMAT COMPLETE RECEIPT TEMPLATE WITH BUZZER CHIME
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -104,6 +104,7 @@ ${now_et} ET
 [align: center]
 [mag: w 1; h 1]THANK YOU!
 
+[buzzer]
 [cut]`;
 
         // Send to StarIO with 4-second timeout guard
