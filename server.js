@@ -57,17 +57,22 @@ app.post("/print", async (req, res) => {
       });
     }
 
-    const rawMarkup = args?.markup || args?.text || args?.content;
+    let rawMarkup = args?.markup || args?.text || args?.content;
     if (!rawMarkup) {
       return res.status(400).json({
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
+    // SANITIZE MARKUP: Strip out duplicate store name or timestamp lines if Vapi sends them
+    rawMarkup = rawMarkup
+      .replace(/^Cash N Dash\s*/im, '')
+      .replace(/^Timestamp:.*$/im, '')
+      .trim();
+
     const now_et = args?.now_et || formatNowET();
 
-    // FIXED STAR MARKUP TEMPLATE
-    // Removed broken [mag] tag at the bottom that was blocking the [cut] command
+    // CLEAN RECEIPT MARKUP
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
