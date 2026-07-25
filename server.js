@@ -4,7 +4,6 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// StarIO.Online endpoint for your printer
 const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
 const STAR_API_KEY = process.env.STAR_API_KEY;
 
@@ -25,18 +24,17 @@ function formatNowET() {
   }).format(now);
 }
 
-// Vapi Tool Calls endpoint (handles BOTH tools)
 app.post("/print", async (req, res) => {
+  // Capture toolCallId right away so we ALWAYS return it back to Vapi
+  const toolCall = req.body?.message?.toolCallList?.[0];
+  const toolCallId = toolCall?.id || null;
+  const toolName = toolCall?.function?.name;
+
+  if (!toolCall || !toolCallId) {
+    return res.status(400).json({ error: "No valid tool call or toolCallId found" });
+  }
+
   try {
-    const toolCall = req.body?.message?.toolCallList?.[0];
-    if (!toolCall) {
-      return res.status(400).json({ error: "No tool call found in request" });
-    }
-
-    const toolCallId = toolCall.id;
-    const toolName = toolCall.function?.name;
-
-    // Parse arguments (string OR object)
     const args =
       typeof toolCall.function?.arguments === "string"
         ? JSON.parse(toolCall.function.arguments || "{}")
@@ -52,19 +50,19 @@ app.post("/print", async (req, res) => {
 
     // 2) Tool: print_star_receipt
     if (toolName !== "print_star_receipt") {
-      return res.status(400).json({
+      return res.json({
         results: [{ toolCallId, result: `unknown_tool_${toolName}` }]
       });
     }
 
     let rawMarkup = args?.markup || args?.text || args?.content;
     if (!rawMarkup) {
-      return res.status(400).json({
+      return res.json({
         results: [{ toolCallId, result: "missing_markup" }]
       });
     }
 
-    // SANITIZE MARKUP: Strip out duplicate store name or timestamp lines if Vapi sends them
+    // Sanitize markup (remove redundant store headers if Vapi sends them)
     rawMarkup = rawMarkup
       .replace(/^Cash N Dash\s*/im, '')
       .replace(/^Timestamp:.*$/im, '')
@@ -72,7 +70,6 @@ app.post("/print", async (req, res) => {
 
     const now_et = args?.now_et || formatNowET();
 
-    // CLEAN RECEIPT MARKUP
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -96,41 +93,47 @@ ${now_et} ET
 
 [cut]`;
 
+    // Send request to StarIO with a strict 5-second timeout controller
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch(STAR_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "text/vnd.star.markup",
         "Star-Api-Key": STAR_API_KEY
       },
-      body: formattedMarkup
+      body: formattedMarkup,
+      signal: controller.signal
     });
 
+    clearTimeout(timeout);
     const starText = await response.text();
 
     if (!response.ok) {
       console.error("StarIO Error:", response.status, starText);
-      return res.status(502).json({
+      return res.json({
         results: [{ toolCallId, result: `star_error_${response.status}` }],
         starResponse: starText
       });
     }
 
+    // SUCCESS -> Return exact format Vapi expects
     return res.json({
       results: [{ toolCallId, result: "printed" }],
       starResponse: starText
     });
+
   } catch (err) {
     console.error("Server Error:", err);
-    return res.status(500).json({
-      results: [
-        { toolCallId: req.body?.message?.toolCallList?.[0]?.id, result: "server_error" }
-      ],
+    // Guarantees Vapi receives the matching toolCallId even on crash or timeout
+    return res.json({
+      results: [{ toolCallId, result: err.name === 'AbortError' ? "timeout" : "server_error" }],
       error: err?.message || String(err)
     });
   }
 });
 
-// Health check
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
