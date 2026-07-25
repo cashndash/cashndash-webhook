@@ -41,12 +41,31 @@ app.post("/print", async (req, res) => {
       });
     }
 
+    // Generate formatted current Date & Time in EASTERN TIME
+    const now = new Date();
+    const dateTimeStr = now.toLocaleString("en-US", {
+      timeZone: "America/New_York", // Eastern Time Zone
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    });
+
     // Format template using Star Document Markup commands:
     // [mag: w 2; h 2] -> Store title (Large 2x width & 2x height)
-    // [mag: w 1; h 2] -> Order items & details (Taller, slightly larger font)
+    // [mag: w 1; h 1] -> Very small / standard font size for address block
+    // [mag: w 1; h 2] -> Order items & details (Taller, bold font)
     const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]STORE CASH N DASH[mag][bold: off]
+
+[mag: w 1; h 1]   512 WILLOW ST       
+   VINCENNES, IN 47591
+   812-882-6102        
+
+Date/Time: ${dateTimeStr} ET
 
 [align: left]
 ********************************
