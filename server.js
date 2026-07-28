@@ -12,6 +12,9 @@ if (!STAR_API_KEY) {
   console.warn("WARNING: STAR_API_KEY environment variable is not set.");
 }
 
+// In-memory print queue (for fallback or direct CloudPRNT usage)
+let printQueue = [];
+
 // Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
@@ -171,6 +174,16 @@ ${now_et} ET
   }
 
   return res.status(200).json({ results });
+});
+
+// ======================================================
+// MANUAL QUEUE CLEAR ROUTE
+// ======================================================
+app.get("/clear", (_req, res) => {
+  const count = printQueue.length;
+  printQueue = [];
+  console.log(`Manual clear executed. Cleared ${count} pending jobs.`);
+  res.status(200).send(`Queue cleared! Removed ${count} pending jobs.`);
 });
 
 // Health check endpoint
