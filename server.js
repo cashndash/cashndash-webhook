@@ -3,7 +3,7 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// In-memory queue
+// In-memory print queue
 let printQueue = [];
 
 // Helper: format Eastern Time
@@ -21,7 +21,7 @@ function formatNowET() {
 }
 
 // ======================================================
-// ESC/POS & STAR COMMAND CONSTANTS
+// ESC/POS & STAR PRINTER COMMAND BYTE CONSTANTS
 // ======================================================
 const ESC = "\x1B";
 const GS  = "\x1D";
@@ -32,18 +32,21 @@ const CMD_ALIGN_LEFT   = ESC + "a" + "\x00";
 
 // Font Sizes (Height & Width multipliers)
 const CMD_SIZE_NORMAL  = GS + "!" + "\x00"; // 1x Size
-const CMD_SIZE_LARGE   = GS + "!" + "\x11"; // 2x Width & Height
-const CMD_SIZE_XLARGE  = GS + "!" + "\x22"; // 3x Width & Height (Big)
-const CMD_SIZE_XXLARGE = GS + "!" + "\x33"; // 4x Width & Height (HUGE)
+const CMD_SIZE_LARGE   = GS + "!" + "\x11"; // 2x Size
+const CMD_SIZE_XLARGE  = GS + "!" + "\x22"; // 3x Size
+const CMD_SIZE_HUGE    = GS + "!" + "\x33"; // 4x Size (Massive font for kitchen)
 
 // Styling
 const CMD_BOLD_ON  = ESC + "E" + "\x01";
 const CMD_BOLD_OFF = ESC + "E" + "\x00";
 
-// Peripherals & Paper Handling
+// Paper Cut & Buzzer
 const CMD_BUZZER   = ESC + "\x07";
-const CMD_FEED_3   = ESC + "d" + "\x04"; // Feed 4 lines before cut
-const CMD_STAR_CUT = ESC + "d" + "\x02"; // Star native full cut
+const CMD_FEED_3   = ESC + "d" + "\x04";
+const CMD_STAR_CUT = ESC + "d" + "\x02";
+
+// Short divider to fit exactly on 1 single line without wrapping
+const LINE_DIVIDER = "----------------------------\n";
 
 // ======================================================
 // 1. VAPI WEBHOOK ENDPOINT (/print)
@@ -89,15 +92,40 @@ app.post("/print", async (req, res) => {
           continue;
         }
 
-        const cleaned = String(rawMarkup)
+        const rawStr = String(rawMarkup)
           .replace(/^Cash N Dash\s*/im, "")
           .replace(/^Timestamp:.*$/im, "")
           .trim();
 
+        // -----------------------------------------------------
+        // PARSE CUSTOMER INFO & ORDER ITEMS
+        // -----------------------------------------------------
+        let customerInfo = "";
+        let itemsList = [];
+
+        const lines = rawStr.split("\n");
+
+        for (let line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+
+          // Extract Customer Name and Phone Number
+          if (/^Customer Name:/i.test(trimmedLine) || /^Phone Number:/i.test(trimmedLine) || /^Name:/i.test(trimmedLine) || /^Phone:/i.test(trimmedLine)) {
+            customerInfo += trimmedLine + "\n";
+          } else {
+            // Prepend '*' to each food item line
+            const formattedItem = trimmedLine.startsWith("*") ? trimmedLine : `* ${trimmedLine}`;
+            itemsList.push(formattedItem);
+          }
+        }
+
+        const formattedItemsStr = itemsList.join("\n");
         const now_et = args.now_et || formatNowET();
         const jobId = Date.now().toString();
 
-        // Build receipt with Extra Large fonts
+        // -----------------------------------------------------
+        // BUILD RECEIPT DATA
+        // -----------------------------------------------------
         const receiptData = 
           CMD_RESET +
           
@@ -109,22 +137,26 @@ app.post("/print", async (req, res) => {
           "812-882-6102\n\n" +
           now_et + " ET\n\n" +
 
-          // ORDER SECTION HEADER
+          // CUSTOMER DETAILS (Printed ABOVE Order Details)
           CMD_ALIGN_LEFT +
-          "================================\n" +
+          LINE_DIVIDER +
+          CMD_BOLD_ON + CMD_SIZE_LARGE + (customerInfo ? customerInfo.trim() + "\n" : "") + CMD_BOLD_OFF +
+          LINE_DIVIDER +
+
+          // ORDER SECTION HEADER
           CMD_ALIGN_CENTER +
           CMD_BOLD_ON + CMD_SIZE_XLARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           CMD_ALIGN_LEFT +
-          "================================\n\n" +
+          LINE_DIVIDER +
 
-          // ORDER ITEMS (XXLARGE - 4x Font Size)
-          CMD_BOLD_ON + CMD_SIZE_XXLARGE + cleaned + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          // ORDER ITEMS (MASSIVE HUGETEXT + BULLETS)
+          CMD_BOLD_ON + CMD_SIZE_HUGE + formattedItemsStr + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
 
           // FOOTER & CUTTER
-          "================================\n" +
+          LINE_DIVIDER +
           CMD_ALIGN_CENTER +
           CMD_BOLD_ON + CMD_SIZE_LARGE + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          "================================\n" +
+          LINE_DIVIDER +
           
           CMD_BUZZER +
           CMD_FEED_3 +
@@ -152,7 +184,6 @@ app.post("/print", async (req, res) => {
 // 2. STAR DIRECT CLOUDPRNT ENDPOINTS (/cloudprnt)
 // ======================================================
 
-// A) Printer Polls Server (POST)
 app.post("/cloudprnt", (req, res) => {
   if (printQueue.length > 0) {
     const activeJob = printQueue[0];
@@ -168,7 +199,6 @@ app.post("/cloudprnt", (req, res) => {
   return res.status(200).json({ jobReady: false });
 });
 
-// B) Printer Downloads Job (GET)
 app.get("/cloudprnt", (req, res) => {
   const token = req.query.jobToken;
 
@@ -186,7 +216,6 @@ app.get("/cloudprnt", (req, res) => {
   return res.status(200).send(activeJob.data);
 });
 
-// C) Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
   const token = req.query.jobToken;
 
@@ -202,7 +231,6 @@ app.delete("/cloudprnt", (req, res) => {
   return res.status(200).json({ success: true });
 });
 
-// Health Check
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
