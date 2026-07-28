@@ -3,7 +3,7 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// Array queue to prevent orders from overwriting each other
+// Array queue to store pending print jobs
 let printQueue = [];
 
 // Helper function to format Eastern Time
@@ -71,7 +71,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Create a unique job object
+        // Create job object
         const newJob = {
           id: Date.now().toString(),
           markup: 
@@ -123,20 +123,18 @@ ${now_et} ET
 
 // Endpoint A: Printer Polls Server (POST)
 app.post("/cloudprnt", (req, res) => {
-  // Check if there are jobs in the queue
   if (printQueue.length > 0) {
     const activeJob = printQueue[0];
 
-    // Official Star CloudPRNT response format
+    // Using mediaTypes supported natively by TSP100IV firmware
     return res.status(200).json({
       jobReady: true,
-      mediaTypes: ["text/vnd.star.markup"],
-      mediaType: "text/vnd.star.markup",
+      mediaTypes: ["application/vnd.star.starprntcore", "text/plain"],
+      mediaType: "application/vnd.star.starprntcore",
       jobToken: activeJob.id
     });
   }
 
-  // No job available
   return res.status(200).json({
     jobReady: false
   });
@@ -150,21 +148,21 @@ app.get("/cloudprnt", (req, res) => {
 
   const activeJob = printQueue[0];
   
-  res.setHeader("Content-Type", "text/vnd.star.markup; charset=utf-8");
+  res.setHeader("Content-Type", "application/vnd.star.starprntcore; charset=utf-8");
   return res.status(200).send(activeJob.markup);
 });
 
 // Endpoint C: Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
   if (printQueue.length > 0) {
-    const finishedJob = printQueue.shift(); // Remove completed job from front of queue
+    const finishedJob = printQueue.shift();
     console.log(`Job ${finishedJob.id} printed and removed. Remaining: ${printQueue.length}`);
   }
   return res.status(200).send("OK");
 });
 
 
-// Health Check & Server Listener
+// Health Check & Listener
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
