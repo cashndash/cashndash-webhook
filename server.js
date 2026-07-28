@@ -20,20 +20,29 @@ function formatNowET() {
   }).format(now);
 }
 
-// ESC/POS & StarPRNT Command Byte Definitions
+// ======================================================
+// ESC/POS & STAR COMMAND CONSTANTS
+// ======================================================
 const ESC = "\x1B";
 const GS  = "\x1D";
 
 const CMD_RESET        = ESC + "@";
 const CMD_ALIGN_CENTER = ESC + "a" + "\x01";
 const CMD_ALIGN_LEFT   = ESC + "a" + "\x00";
-const CMD_BOLD_ON      = ESC + "E" + "\x01";
-const CMD_BOLD_OFF     = ESC + "E" + "\x00";
-const CMD_DOUBLE_SIZE  = GS  + "!" + "\x11"; // 2x Width & Height
-const CMD_NORMAL_SIZE  = GS  + "!" + "\x00";
-const CMD_FEED_3_LINES = ESC + "d" + "\x03"; 
-const CMD_CUT          = GS  + "V" + "\x41" + "\x03"; // Full cut after feed
-const CMD_BUZZER       = ESC + "\x07"; // Standard buzzer command
+
+// Font Sizes
+const CMD_SIZE_NORMAL = GS + "!" + "\x00"; // Standard size
+const CMD_SIZE_MEDIUM = GS + "!" + "\x01"; // Double Height
+const CMD_SIZE_LARGE  = GS + "!" + "\x11"; // Double Width + Double Height
+
+// Styling
+const CMD_BOLD_ON  = ESC + "E" + "\x01";
+const CMD_BOLD_OFF = ESC + "E" + "\x00";
+
+// Peripherals & Paper Handling
+const CMD_BUZZER    = ESC + "\x07";
+const CMD_FEED_3    = ESC + "d" + "\x04"; // Feed 4 lines to clear cutter blade
+const CMD_STAR_CUT  = ESC + "d" + "\x02"; // Star native full cut command
 
 // ======================================================
 // 1. VAPI WEBHOOK ENDPOINT (/print)
@@ -87,26 +96,39 @@ app.post("/print", async (req, res) => {
         const now_et = args.now_et || formatNowET();
         const jobId = Date.now().toString();
 
-        // Build raw binary string for thermal hardware
+        // Build decorated receipt with clear size hierarchy
         const receiptData = 
           CMD_RESET +
+          
+          // HEADER (Large & Centered)
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_DOUBLE_SIZE + "Cash N Dash\n" + CMD_NORMAL_SIZE + CMD_BOLD_OFF + "\n" +
-          "512 WILLOW ST\n" +
+          CMD_BOLD_ON + CMD_SIZE_LARGE + "Cash N Dash\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_SIZE_MEDIUM + "512 WILLOW ST\n" +
           "VINCENNES, IN 47591\n" +
           "812-882-6102\n\n" +
           now_et + " ET\n\n" +
+          CMD_SIZE_NORMAL +
+
+          // ORDER SECTION HEADER
           CMD_ALIGN_LEFT +
-          "--------------------------------\n" +
-          CMD_BOLD_ON + CMD_DOUBLE_SIZE + "ORDER DETAILS\n" + CMD_NORMAL_SIZE + CMD_BOLD_OFF +
-          "--------------------------------\n\n" +
-          CMD_BOLD_ON + cleaned + "\n" + CMD_BOLD_OFF + "\n" +
-          "--------------------------------\n" +
+          "================================\n" +
           CMD_ALIGN_CENTER +
-          "THANK YOU!\n\n" +
+          CMD_BOLD_ON + CMD_SIZE_LARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_ALIGN_LEFT +
+          "================================\n\n" +
+
+          // ITEMS (Large, Bold Text)
+          CMD_BOLD_ON + CMD_SIZE_MEDIUM + cleaned + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+
+          // FOOTER & CUTTER
+          "================================\n" +
+          CMD_ALIGN_CENTER +
+          CMD_BOLD_ON + CMD_SIZE_MEDIUM + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          "================================\n" +
+          
           CMD_BUZZER +
-          CMD_FEED_3_LINES +
-          CMD_CUT;
+          CMD_FEED_3 +
+          CMD_STAR_CUT;
 
         printQueue.push({ id: jobId, data: receiptData });
         console.log(`New job queued (ID: ${jobId}). Queue depth: ${printQueue.length}`);
@@ -146,7 +168,7 @@ app.post("/cloudprnt", (req, res) => {
   return res.status(200).json({ jobReady: false });
 });
 
-// B) Printer Downloads Job (GET) - Validates jobToken
+// B) Printer Downloads Job (GET)
 app.get("/cloudprnt", (req, res) => {
   const token = req.query.jobToken;
 
@@ -164,7 +186,7 @@ app.get("/cloudprnt", (req, res) => {
   return res.status(200).send(activeJob.data);
 });
 
-// C) Printer Confirms Print Completion (DELETE) - Validates jobToken
+// C) Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
   const token = req.query.jobToken;
 
@@ -180,7 +202,7 @@ app.delete("/cloudprnt", (req, res) => {
   return res.status(200).json({ success: true });
 });
 
-// Health check endpoint
+// Health Check
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
