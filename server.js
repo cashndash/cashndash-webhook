@@ -3,8 +3,8 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// In-memory queue to store pending print jobs
-let pendingPrintJob = null;
+// Array queue to prevent orders from overwriting each other
+let printQueue = [];
 
 // Helper function to format Eastern Time
 function formatNowET() {
@@ -71,8 +71,10 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Save formatted markup to in-memory queue for CloudPRNT polling
-        pendingPrintJob = 
+        // Create a unique job object
+        const newJob = {
+          id: Date.now().toString(),
+          markup: 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
@@ -94,9 +96,12 @@ ${now_et} ET
 [mag: w 1; h 1]THANK YOU!
 
 [buzzer]
-[cut]`;
+[cut]`
+        };
 
-        console.log("New job queued for direct CloudPRNT printing.");
+        printQueue.push(newJob);
+        console.log(`New order queued (ID: ${newJob.id}). Queue depth: ${printQueue.length}`);
+        
         results.push({ toolCallId, result: "printed" });
         continue;
       }
@@ -118,11 +123,16 @@ ${now_et} ET
 
 // Endpoint A: Printer Polls Server (POST)
 app.post("/cloudprnt", (req, res) => {
-  // If there is a pending job, inform printer jobReady is true
-  if (pendingPrintJob) {
+  // Check if there are jobs in the queue
+  if (printQueue.length > 0) {
+    const activeJob = printQueue[0];
+
+    // Official Star CloudPRNT response format
     return res.status(200).json({
       jobReady: true,
-      mediaTypes: ["text/vnd.star.markup"]
+      mediaTypes: ["text/vnd.star.markup"],
+      mediaType: "text/vnd.star.markup",
+      jobToken: activeJob.id
     });
   }
 
@@ -134,19 +144,23 @@ app.post("/cloudprnt", (req, res) => {
 
 // Endpoint B: Printer Downloads the Print Markup (GET)
 app.get("/cloudprnt", (req, res) => {
-  if (!pendingPrintJob) {
-    return res.status(404).send("No job pending");
+  if (printQueue.length === 0) {
+    return res.status(404).send("No pending jobs");
   }
 
-  res.setHeader("Content-Type", "text/vnd.star.markup");
-  res.send(pendingPrintJob);
+  const activeJob = printQueue[0];
+  
+  res.setHeader("Content-Type", "text/vnd.star.markup; charset=utf-8");
+  return res.status(200).send(activeJob.markup);
 });
 
 // Endpoint C: Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
-  console.log("Printer completed print job successfully.");
-  pendingPrintJob = null; // Clear queue
-  res.status(200).send("OK");
+  if (printQueue.length > 0) {
+    const finishedJob = printQueue.shift(); // Remove completed job from front of queue
+    console.log(`Job ${finishedJob.id} printed and removed. Remaining: ${printQueue.length}`);
+  }
+  return res.status(200).send("OK");
 });
 
 
