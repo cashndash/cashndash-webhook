@@ -30,19 +30,20 @@ const CMD_RESET        = ESC + "@";
 const CMD_ALIGN_CENTER = ESC + "a" + "\x01";
 const CMD_ALIGN_LEFT   = ESC + "a" + "\x00";
 
-// Font Sizes
-const CMD_SIZE_NORMAL = GS + "!" + "\x00"; // Standard size
-const CMD_SIZE_MEDIUM = GS + "!" + "\x01"; // Double Height
-const CMD_SIZE_LARGE  = GS + "!" + "\x11"; // Double Width + Double Height
+// Font Sizes (Height & Width multipliers)
+const CMD_SIZE_NORMAL  = GS + "!" + "\x00"; // 1x Size
+const CMD_SIZE_LARGE   = GS + "!" + "\x11"; // 2x Width & Height
+const CMD_SIZE_XLARGE  = GS + "!" + "\x22"; // 3x Width & Height (Big)
+const CMD_SIZE_XXLARGE = GS + "!" + "\x33"; // 4x Width & Height (HUGE)
 
 // Styling
 const CMD_BOLD_ON  = ESC + "E" + "\x01";
 const CMD_BOLD_OFF = ESC + "E" + "\x00";
 
 // Peripherals & Paper Handling
-const CMD_BUZZER    = ESC + "\x07";
-const CMD_FEED_3    = ESC + "d" + "\x04"; // Feed 4 lines to clear cutter blade
-const CMD_STAR_CUT  = ESC + "d" + "\x02"; // Star native full cut command
+const CMD_BUZZER   = ESC + "\x07";
+const CMD_FEED_3   = ESC + "d" + "\x04"; // Feed 4 lines before cut
+const CMD_STAR_CUT = ESC + "d" + "\x02"; // Star native full cut
 
 // ======================================================
 // 1. VAPI WEBHOOK ENDPOINT (/print)
@@ -96,34 +97,33 @@ app.post("/print", async (req, res) => {
         const now_et = args.now_et || formatNowET();
         const jobId = Date.now().toString();
 
-        // Build decorated receipt with clear size hierarchy
+        // Build receipt with Extra Large fonts
         const receiptData = 
           CMD_RESET +
           
-          // HEADER (Large & Centered)
+          // HEADER
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_LARGE + "Cash N Dash\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          CMD_SIZE_MEDIUM + "512 WILLOW ST\n" +
+          CMD_BOLD_ON + CMD_SIZE_XLARGE + "Cash N Dash\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_SIZE_LARGE + "512 WILLOW ST\n" +
           "VINCENNES, IN 47591\n" +
           "812-882-6102\n\n" +
           now_et + " ET\n\n" +
-          CMD_SIZE_NORMAL +
 
           // ORDER SECTION HEADER
           CMD_ALIGN_LEFT +
           "================================\n" +
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_LARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_BOLD_ON + CMD_SIZE_XLARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           CMD_ALIGN_LEFT +
           "================================\n\n" +
 
-          // ITEMS (Large, Bold Text)
-          CMD_BOLD_ON + CMD_SIZE_MEDIUM + cleaned + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          // ORDER ITEMS (XXLARGE - 4x Font Size)
+          CMD_BOLD_ON + CMD_SIZE_XXLARGE + cleaned + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
 
           // FOOTER & CUTTER
           "================================\n" +
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_MEDIUM + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_BOLD_ON + CMD_SIZE_LARGE + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           "================================\n" +
           
           CMD_BUZZER +
