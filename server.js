@@ -34,7 +34,7 @@ const CMD_ALIGN_LEFT   = ESC + "a" + "\x00";
 const CMD_SIZE_NORMAL  = GS + "!" + "\x00"; // 1x Size
 const CMD_SIZE_LARGE   = GS + "!" + "\x11"; // 2x Size
 const CMD_SIZE_XLARGE  = GS + "!" + "\x22"; // 3x Size
-const CMD_SIZE_HUGE    = GS + "!" + "\x33"; // 4x Size (Massive font for kitchen)
+const CMD_SIZE_HUGE    = GS + "!" + "\x33"; // 4x Size (Massive font)
 
 // Styling
 const CMD_BOLD_ON  = ESC + "E" + "\x01";
@@ -45,7 +45,7 @@ const CMD_BUZZER   = ESC + "\x07";
 const CMD_FEED_3   = ESC + "d" + "\x04";
 const CMD_STAR_CUT = ESC + "d" + "\x02";
 
-// Short divider to fit exactly on 1 single line without wrapping
+// Short divider to fit on 1 single line without wrapping
 const LINE_DIVIDER = "----------------------------\n";
 
 // ======================================================
@@ -110,12 +110,19 @@ app.post("/print", async (req, res) => {
           if (!trimmedLine) continue;
 
           // Extract Customer Name and Phone Number
-          if (/^Customer Name:/i.test(trimmedLine) || /^Phone Number:/i.test(trimmedLine) || /^Name:/i.test(trimmedLine) || /^Phone:/i.test(trimmedLine)) {
+          if (
+            /^Customer Name:/i.test(trimmedLine) || 
+            /^Phone Number:/i.test(trimmedLine) || 
+            /^Name:/i.test(trimmedLine) || 
+            /^Phone:/i.test(trimmedLine)
+          ) {
             customerInfo += trimmedLine + "\n";
           } else {
-            // Prepend '*' to each food item line
-            const formattedItem = trimmedLine.startsWith("*") ? trimmedLine : `* ${trimmedLine}`;
-            itemsList.push(formattedItem);
+            // Remove extra leading bullets and add exactly ONE '*'
+            const cleanItem = trimmedLine.replace(/^[\*\s\-]+/g, "").trim();
+            if (cleanItem) {
+              itemsList.push(`* ${cleanItem}`);
+            }
           }
         }
 
@@ -129,33 +136,35 @@ app.post("/print", async (req, res) => {
         const receiptData = 
           CMD_RESET +
           
-          // HEADER
+          // HEADER (Centered, Extra Large & Bold)
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_XLARGE + "Cash N Dash\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          CMD_SIZE_LARGE + "512 WILLOW ST\n" +
+          CMD_BOLD_ON + 
+          CMD_SIZE_XLARGE + "Cash N Dash\n" +
+          "512 WILLOW ST\n" +
           "VINCENNES, IN 47591\n" +
           "812-882-6102\n\n" +
-          now_et + " ET\n\n" +
+          CMD_SIZE_LARGE + now_et + " ET\n\n" +
+          CMD_SIZE_NORMAL + CMD_BOLD_OFF +
 
-          // CUSTOMER DETAILS (Printed ABOVE Order Details)
+          // CUSTOMER DETAILS (Left-Aligned, Large & Bold, Above Order Details)
           CMD_ALIGN_LEFT +
           LINE_DIVIDER +
-          CMD_BOLD_ON + CMD_SIZE_LARGE + (customerInfo ? customerInfo.trim() + "\n" : "") + CMD_BOLD_OFF +
+          CMD_BOLD_ON + CMD_SIZE_LARGE + (customerInfo ? customerInfo.trim() + "\n" : "") + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           LINE_DIVIDER +
 
-          // ORDER SECTION HEADER
+          // ORDER SECTION HEADER (Centered, XLARGE Bold)
           CMD_ALIGN_CENTER +
           CMD_BOLD_ON + CMD_SIZE_XLARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           CMD_ALIGN_LEFT +
           LINE_DIVIDER +
 
-          // ORDER ITEMS (MASSIVE HUGETEXT + BULLETS)
+          // ORDER ITEMS (Left-Aligned, Massive 4x Font + Bold + Single '*')
           CMD_BOLD_ON + CMD_SIZE_HUGE + formattedItemsStr + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
 
-          // FOOTER & CUTTER
+          // FOOTER & CUTTER (Centered, XLARGE Bold)
           LINE_DIVIDER +
           CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_LARGE + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+          CMD_BOLD_ON + CMD_SIZE_XLARGE + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
           LINE_DIVIDER +
           
           CMD_BUZZER +
