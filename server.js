@@ -71,7 +71,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Create job object
+        // Create job object with Star Markup tags
         const newJob = {
           id: Date.now().toString(),
           markup: 
@@ -126,11 +126,11 @@ app.post("/cloudprnt", (req, res) => {
   if (printQueue.length > 0) {
     const activeJob = printQueue[0];
 
-    // Using mediaTypes supported natively by TSP100IV firmware
+    // Tell the printer explicitly to expect Star Document Markup
     return res.status(200).json({
       jobReady: true,
-      mediaTypes: ["application/vnd.star.starprntcore", "text/plain"],
-      mediaType: "application/vnd.star.starprntcore",
+      mediaTypes: ["text/vnd.star.markup"],
+      mediaType: "text/vnd.star.markup",
       jobToken: activeJob.id
     });
   }
@@ -148,7 +148,8 @@ app.get("/cloudprnt", (req, res) => {
 
   const activeJob = printQueue[0];
   
-  res.setHeader("Content-Type", "application/vnd.star.starprntcore; charset=utf-8");
+  // Explicit header informing the printer to render markup commands
+  res.setHeader("Content-Type", "text/vnd.star.markup; charset=utf-8");
   return res.status(200).send(activeJob.markup);
 });
 
