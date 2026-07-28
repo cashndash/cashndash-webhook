@@ -44,9 +44,9 @@ function formatItemWithPrice(line) {
       .trim();
 
     const formattedName = `* ${itemName}`;
-    // If item name is too long, trim it so price always fits on column 32
     const maxNameLen = maxLen - priceVal.length - 1;
     let finalName = formattedName;
+
     if (formattedName.length > maxNameLen) {
       finalName = formattedName.substring(0, maxNameLen - 1) + ".";
     }
@@ -114,10 +114,7 @@ app.post("/print", async (req, res) => {
           continue;
         }
 
-        const rawStr = String(rawMarkup)
-          .replace(/^Cash N Dash\s*/im, "")
-          .replace(/^Timestamp:.*$/im, "")
-          .trim();
+        const rawStr = String(rawMarkup).trim();
 
         let customerInfoLines = [];
         let itemsList = [];
@@ -129,6 +126,16 @@ app.post("/print", async (req, res) => {
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
+
+          // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages from item list
+          if (
+            /Cash N Dash/i.test(trimmedLine) ||
+            /Date:/i.test(trimmedLine) ||
+            /Thank you/i.test(trimmedLine) ||
+            /Timestamp:/i.test(trimmedLine)
+          ) {
+            continue;
+          }
 
           // Parse Customer Details
           if (
@@ -144,8 +151,8 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             subtotalStr = val ? formatSummaryLine("Subtotal:", val) : trimmedLine;
-          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax:/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/^(?:Sales\s+)?Tax:\s*(\$?\d+(?:\.\d{2})?)/i);
+          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/(?:Sales\s+)?Tax(?:\s*\(\d+%\))?:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             taxStr = val ? formatSummaryLine("Sales Tax:", val) : trimmedLine;
           } else if (/^Total:/i.test(trimmedLine) || /^Grand Total:/i.test(trimmedLine)) {
@@ -153,7 +160,7 @@ app.post("/print", async (req, res) => {
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             totalStr = val ? formatSummaryLine("TOTAL:", val) : trimmedLine;
           }
-          // Parse Order Items
+          // Parse ONLY actual food items
           else {
             itemsList.push(formatItemWithPrice(trimmedLine));
           }
@@ -161,11 +168,11 @@ app.post("/print", async (req, res) => {
 
         const customerInfoStr = customerInfoLines.length > 0 
           ? customerInfoLines.join("\n") 
-          : "Customer: N/A";
+          : "Customer Name: N/A\nPhone Number: N/A";
 
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
-          : `* ${rawStr}`;
+          : "* No Items Detected";
 
         const now_et = args.now_et || formatNowET();
 
@@ -179,7 +186,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // CLEAN, FIXED STAR RECEIPT TEMPLATE
+        // EXACT RECEIPT MARKUP
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -195,7 +202,7 @@ ${now_et} ET
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
 [align: center]
-[bold: on][mag: w 1; h 2]ORDER DETAILS[mag][bold: off]
+[bold: on][mag: w 1; h 2]KITCHEN ORDER[mag][bold: off]
 --------------------------------
 
 [align: left]
@@ -205,7 +212,7 @@ ${now_et} ET
 ${totalsMarkup}
 [align: center]
 --------------------------------
-[bold: on]❀ THANK YOU! ❀[bold: off]
+[bold: on]THANK YOU![bold: off]
 
 [buzzer]
 [cut]`;
