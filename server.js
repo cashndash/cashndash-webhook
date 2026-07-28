@@ -3,10 +3,12 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// Array queue to store pending print jobs
+// ===============================
+// SIMPLE IN-MEMORY PRINT QUEUE
+// ===============================
 let printQueue = [];
 
-// Helper function to format Eastern Time
+// Helper: format Eastern Time
 function formatNowET() {
   const now = new Date();
   return new Intl.DateTimeFormat("en-US", {
@@ -20,13 +22,14 @@ function formatNowET() {
   }).format(now);
 }
 
-// ======================================================
-// 1. VAPI WEBHOOK ENDPOINT (/print)
-// ======================================================
+// ===============================
+// 1) VAPI WEBHOOK: /print
+// ===============================
 app.post("/print", async (req, res) => {
   const toolCallList = req.body?.message?.toolCallList || [];
 
   if (!Array.isArray(toolCallList) || toolCallList.length === 0) {
+    console.log("No tool calls in request.");
     return res.status(200).json({ results: [] });
   }
 
@@ -46,36 +49,40 @@ app.post("/print", async (req, res) => {
     }
 
     try {
+      // Tool: get_now_et
       if (toolName === "get_now_et") {
         results.push({ toolCallId, result: { now_et: formatNowET() } });
         continue;
       }
 
+      // Tool: end_call_now
       if (toolName === "end_call_now") {
         results.push({ toolCallId, result: "Success." });
         continue;
       }
 
+      // Tool: print_star_receipt
       if (toolName === "print_star_receipt") {
-        const rawMarkup = args.markup ?? args.content ?? args.text ?? args.items ?? "";
+        const rawMarkup =
+          args.markup ?? args.content ?? args.text ?? args.items ?? "";
 
         if (!rawMarkup) {
+          console.log("Missing markup in print_star_receipt.");
           results.push({ toolCallId, result: "missing_markup" });
           continue;
         }
 
         const cleaned = String(rawMarkup)
-          .replace(/^Cash N Dash\s*/im, '')
-          .replace(/^Timestamp:.*$/im, '')
+          .replace(/^Cash N Dash\s*/im, "")
+          .replace(/^Timestamp:.*$/im, "")
           .trim();
 
         const now_et = args.now_et || formatNowET();
 
-        // Create job object with Star Markup
-        const newJob = {
-          id: Date.now().toString(),
-          markup: 
-`[align: center]
+        const jobId = Date.now().toString();
+
+        const starMarkup = `
+[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
 [mag: w 1; h 1]   512 WILLOW ST       
@@ -96,16 +103,24 @@ ${now_et} ET
 [mag: w 1; h 1]THANK YOU!
 
 [buzzer]
-[cut]`
+[cut]
+`.trim();
+
+        const newJob = {
+          id: jobId,
+          markup: starMarkup
         };
 
         printQueue.push(newJob);
-        console.log(`New order queued (ID: ${newJob.id}). Queue depth: ${printQueue.length}`);
-        
+        console.log(
+          `New job queued (ID: ${jobId}). Queue depth: ${printQueue.length}`
+        );
+
         results.push({ toolCallId, result: "printed" });
         continue;
       }
 
+      // Unknown tool
       results.push({ toolCallId, result: `unknown_tool_${toolName}` });
     } catch (err) {
       console.error(`Error processing toolCallId ${toolCallId}:`, err);
@@ -116,56 +131,76 @@ ${now_et} ET
   return res.status(200).json({ results });
 });
 
+// ===============================
+// 2) CLOUDPRNT ENDPOINTS: /cloudprnt
+// ===============================
 
-// ======================================================
-// 2. STAR DIRECT CLOUDPRNT ENDPOINTS (/cloudprnt)
-// ======================================================
-
-// Endpoint A: Printer Polls Server (POST)
+// A) Printer polls for job (POST)
 app.post("/cloudprnt", (req, res) => {
-  if (printQueue.length > 0) {
-    const activeJob = printQueue[0];
+  console.log("CloudPRNT POST poll received.");
 
-    // Using text/plain so TSP100IV parses CloudPRNT markup tags directly
-    return res.status(200).json({
-      jobReady: true,
-      mediaTypes: ["text/plain"],
-      mediaType: "text/plain",
-      jobToken: activeJob.id
-    });
-  }
-
-  return res.status(200).json({
-    jobReady: false
-  });
-});
-
-// Endpoint B: Printer Downloads the Print Markup (GET)
-app.get("/cloudprnt", (req, res) => {
   if (printQueue.length === 0) {
-    return res.status(404).send("No pending jobs");
+    console.log("No jobs in queue. jobReady = false.");
+    return res.json({ jobReady: false });
   }
 
-  const activeJob = printQueue[0];
-  
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.status(200).send(activeJob.markup);
+  const job = printQueue[0];
+
+  const response = {
+    jobReady: true,
+    jobToken: job.id,
+    jobType: "text",
+    url: `https://cashndash-webhook.onrender.com/cloudprnt?jobToken=${job.id}`
+  };
+
+  console.log("CloudPRNT POST response:", response);
+  return res.json(response);
 });
 
-// Endpoint C: Printer Confirms Print Completion (DELETE)
+// B) Printer downloads job (GET)
+app.get("/cloudprnt", (req, res) => {
+  const token = req.query.jobToken;
+  console.log("CloudPRNT GET download. jobToken =", token);
+
+  if (!token || printQueue.length === 0 || printQueue[0].id !== token) {
+    console.log("No matching job for token:", token);
+    return res.status(404).send("No job");
+  }
+
+  const job = printQueue[0];
+  console.log("Sending job markup for job:", job.id);
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.send(job.markup);
+});
+
+// C) Printer confirms job printed (DELETE)
 app.delete("/cloudprnt", (req, res) => {
+  console.log("CloudPRNT DELETE called.");
+
   if (printQueue.length > 0) {
     const finishedJob = printQueue.shift();
-    console.log(`Job ${finishedJob.id} printed and removed. Remaining: ${printQueue.length}`);
+    console.log(
+      `Job ${finishedJob.id} printed and removed. Remaining queue: ${printQueue.length}`
+    );
+  } else {
+    console.log("DELETE called but queue is empty.");
   }
-  return res.status(200).send("OK");
+
+  return res.send("OK");
 });
 
-
-// Health Check & Listener
+// ===============================
+// HEALTH CHECK
+// ===============================
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
 
+// ===============================
+// START SERVER
+// ===============================
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`Cash N Dash Webhook running on port ${port}`));
+app.listen(port, () =>
+  console.log(`Cash N Dash Webhook running on port ${port}`)
+);
