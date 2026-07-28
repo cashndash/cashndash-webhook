@@ -29,17 +29,21 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to right-align item prices cleanly across standard 32 receipt columns
+// Helper function to right-align item prices cleanly across 32 receipt columns
 function formatItemWithPrice(line) {
-  const maxLen = 32; // Standard 80mm receipt width in normal font
-  
-  // Match item name and price at the end (e.g., "Potato Wedges $3.99" or "Cheeseburger - 7.99")
-  const priceMatch = line.match(/^(.*?)(?::|\s|-)+(\$?\d+(?:\.\d{2})?)$/);
+  const maxLen = 32; // Standard 80mm receipt width in standard font
 
+  // Extract price if present anywhere in the string (e.g., "$7.99 Bacon Cheeseburger" or "Bacon Cheeseburger $7.99")
+  const priceMatch = line.match(/\$?(\d+\.\d{2})/);
+  
   if (priceMatch) {
-    let itemName = priceMatch[1].replace(/^[\*\s\-]+/g, "").trim();
-    let priceVal = priceMatch[2].trim();
-    if (!priceVal.startsWith("$")) priceVal = `$${priceVal}`;
+    const priceVal = `$${priceMatch[1]}`;
+    // Remove price and extraneous symbols from item description
+    let itemName = line
+      .replace(/\$?(\d+\.\d{2})/, "")
+      .replace(/^[\*\s\-:]+/g, "")
+      .replace(/[\*\s\-:]+$/g, "")
+      .trim();
 
     const formattedName = `* ${itemName}`;
     const spaceNeeded = maxLen - formattedName.length - priceVal.length;
@@ -55,7 +59,7 @@ function formatItemWithPrice(line) {
   return `* ${cleanLine}`;
 }
 
-// Helper function to right-align summary lines (Subtotal, Tax, Total)
+// Helper function to right-align summary lines across 32 receipt columns
 function formatSummaryLine(label, amount) {
   const maxLen = 32;
   const spaceNeeded = maxLen - label.length - amount.length;
@@ -137,13 +141,16 @@ app.post("/print", async (req, res) => {
           // Parse Financial Totals
           else if (/^Subtotal:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
-            subtotalStr = match ? formatSummaryLine("Subtotal:", match[1]) : trimmedLine;
+            const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
+            subtotalStr = val ? formatSummaryLine("Subtotal:", val) : trimmedLine;
           } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^(?:Sales\s+)?Tax:\s*(\$?\d+(?:\.\d{2})?)/i);
-            taxStr = match ? formatSummaryLine("Sales Tax:", match[1]) : trimmedLine;
+            const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
+            taxStr = val ? formatSummaryLine("Sales Tax:", val) : trimmedLine;
           } else if (/^Total:/i.test(trimmedLine) || /^Grand Total:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^(?:Grand\s+)?Total:\s*(\$?\d+(?:\.\d{2})?)/i);
-            totalStr = match ? formatSummaryLine("TOTAL:", match[1]) : trimmedLine;
+            const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
+            totalStr = val ? formatSummaryLine("TOTAL:", val) : trimmedLine;
           }
           // Parse Order Items
           else {
@@ -161,7 +168,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Section: Subtotal -> Sales Tax -> Double Lines -> Total
+        // Build Totals Section: Subtotal -> Sales Tax -> Double Lines -> TOTAL
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
@@ -171,7 +178,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // PERFECTLY FORMATTED PRO RECEIPT TEMPLATE
+        // PERFECT PRO RECEIPT MARKUP TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
