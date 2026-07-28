@@ -78,16 +78,18 @@ app.post("/print", async (req, res) => {
           .replace(/^Timestamp:.*$/im, "")
           .trim();
 
-        // Separate Customer Info from Order Items
         let customerInfoLines = [];
         let itemsList = [];
+        let subtotalStr = "";
+        let taxStr = "";
+        let totalStr = "";
 
         const lines = rawStr.split("\n");
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Detect Customer Details (Name & Phone)
+          // Parse Customer Details
           if (
             /^Customer Name:/i.test(trimmedLine) || 
             /^Phone Number:/i.test(trimmedLine) || 
@@ -95,8 +97,17 @@ app.post("/print", async (req, res) => {
             /^Phone:/i.test(trimmedLine)
           ) {
             customerInfoLines.push(trimmedLine);
-          } else {
-            // Clean leading bullets/dashes/asterisks and format strictly with one '*'
+          }
+          // Parse Financials
+          else if (/^Subtotal:/i.test(trimmedLine)) {
+            subtotalStr = trimmedLine;
+          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax:/i.test(trimmedLine)) {
+            taxStr = trimmedLine;
+          } else if (/^Total:/i.test(trimmedLine) || /^Grand Total:/i.test(trimmedLine)) {
+            totalStr = trimmedLine;
+          }
+          // Parse Items
+          else {
             const cleanItem = trimmedLine.replace(/^[\*\s\-]+/g, "").trim();
             if (cleanItem) {
               itemsList.push(`* ${cleanItem}`);
@@ -114,31 +125,42 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // CUSTOMER & ORDER RECEIPT TEMPLATE
+        // Build Pro Financial Totals Section
+        let totalsMarkup = "";
+        if (subtotalStr || taxStr || totalStr) {
+          totalsMarkup += `--------------------------------\n`;
+          if (subtotalStr) totalsMarkup += `${subtotalStr}\n`;
+          if (taxStr) totalsMarkup += `${taxStr}\n`;
+          totalsMarkup += `================================\n`;
+          if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
+        }
+
+        // PRO-GRADE HIGH-CONTRAST STAR MARKUP TEMPLATE
         const formattedMarkup = 
 `[align: center]
-[bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
+[invert: on][bold: on][mag: w 2; h 2] CASH N DASH [mag][bold: off][invert: off]
 
-512 WILLOW ST
-VINCENNES, IN 47591
-812-882-6102
-${now_et} ET
+512 WILLOW ST | VINCENNES, IN
+TEL: 812-882-6102
+DATE: ${now_et} ET
 
 [align: left]
+================================
+[bold: on]CUSTOMER DETAILS[bold: off]
 --------------------------------
-[bold: on]CUSTOMER DETAILS:[bold: off]
 [bold: on]${customerInfoStr}[bold: off]
---------------------------------
+================================
+
 [align: center]
-[bold: on][mag: w 1; h 2]ORDER DETAILS
---------------------[mag][bold: off]
+[bold: on][mag: w 1; h 2]--- KITCHEN ORDER ---[mag][bold: off]
 
 [align: left]
 [bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
 
+${totalsMarkup}
 [align: center]
---------------------------------
-[bold: on]❀ THANK YOU! ❀[bold: off]
+================================
+[bold: on]❀ THANK YOU FOR YOUR ORDER! ❀[bold: off]
 
 [buzzer]
 [cut]`;
