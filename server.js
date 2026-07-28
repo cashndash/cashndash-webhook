@@ -29,32 +29,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to right-align item price across 32 columns
-function formatItemLine(itemText) {
-  const maxLen = 32;
-  // Match item name and price if price is at the end (e.g., "* 2 x Cheeseburger $15.98" or "* Cheeseburger $7.99")
-  const match = itemText.match(/^(.*?)(?:\s+(\$\d+(?:\.\d{2})?))$/);
-
-  if (match) {
-    let name = match[1].trim();
-    let price = match[2].trim();
-
-    // Ensure name starts with asterisk
-    if (!name.startsWith("*")) {
-      name = `* ${name}`;
-    }
-
-    const spaceNeeded = maxLen - name.length - price.length;
-    if (spaceNeeded > 0) {
-      return `${name}${" ".repeat(spaceNeeded)}${price}`;
-    }
-  }
-
-  // Fallback if no price detected
-  return itemText.startsWith("*") ? itemText : `* ${itemText}`;
-}
-
-// Helper function to format summary lines (Subtotal, Tax, Total) right-aligned
+// Helper function to right-align summary lines (Subtotal, Tax, Total) across 32 columns
 function formatSummaryLine(label, amount) {
   const maxLen = 32;
   const spaceNeeded = maxLen - label.length - amount.length;
@@ -148,7 +123,7 @@ app.post("/print", async (req, res) => {
           else {
             const cleanItem = trimmedLine.replace(/^[\*\s\-]+/g, "").trim();
             if (cleanItem) {
-              itemsList.push(formatItemLine(cleanItem));
+              itemsList.push(`* ${cleanItem}`);
             }
           }
         }
@@ -163,17 +138,17 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Right-Aligned Totals Section
+        // Build Totals Markup Section
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
           if (subtotalStr) totalsMarkup += `[bold: on]${subtotalStr}[bold: off]\n`;
           if (taxStr) totalsMarkup += `[bold: on]${taxStr}[bold: off]\n`;
           totalsMarkup += `--------------------------------\n`;
-          if (totalStr) totalsMarkup += `[bold: on]${totalStr}[bold: off]\n`;
+          if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // CLASSIC PRO RECEIPT MARKUP TEMPLATE
+        // REGULAR CLASSIC STAR RECEIPT TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -193,8 +168,9 @@ ${now_et} ET
 --------------------[mag][bold: off]
 
 [align: left]
-[bold: on]${formattedItemsStr}[bold: off]
+[bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
 
+[align: left]
 ${totalsMarkup}
 [align: center]
 --------------------------------
