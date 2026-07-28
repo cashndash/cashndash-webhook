@@ -114,7 +114,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // STAR MARKUP TEMPLATE WITH CENTERED DIVIDER & PERFECT KITCHEN FONT SIZE
+        // STAR MARKUP TEMPLATE WITH FLOWER ACCENTS AROUND THANK YOU
         const formattedMarkup = 
 `[align: center]
 [bold: on]Cash N Dash[bold: off]
@@ -131,15 +131,15 @@ ${now_et} ET
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
 [align: center]
-[bold: on][mag: w 1; h 2]ORDER DETAILS[mag][bold: off]
---------------------------------
+[bold: on][mag: w 1; h 2]ORDER DETAILS
+--------------------[mag][bold: off]
 
 [align: left]
 [bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
 
 [align: center]
 --------------------------------
-[bold: on]THANK YOU![bold: off]
+[bold: on]❀ THANK YOU! ❀[bold: off]
 
 [buzzer]
 [cut]`;
