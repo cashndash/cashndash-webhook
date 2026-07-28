@@ -5,7 +5,7 @@ const app = express();
 app.use(express.json());
 
 // StarIO.Online Endpoint for your TSP100IV
-const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
+const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/4cfe6e42/q";
 const STAR_API_KEY = process.env.STAR_API_KEY;
 
 if (!STAR_API_KEY) {
