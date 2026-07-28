@@ -29,10 +29,11 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to right-align item prices cleanly across 32 receipt columns
+// Helper function to right-align item prices cleanly across standard 32 receipt columns
 function formatItemWithPrice(line) {
-  const maxLen = 32;
-  // Match item name and price at the end (e.g., "Potato Wedges $3.99" or "* Potato Wedges - 3.99")
+  const maxLen = 32; // Standard 80mm receipt width in normal font
+  
+  // Match item name and price at the end (e.g., "Potato Wedges $3.99" or "Cheeseburger - 7.99")
   const priceMatch = line.match(/^(.*?)(?::|\s|-)+(\$?\d+(?:\.\d{2})?)$/);
 
   if (priceMatch) {
@@ -144,7 +145,7 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/^(?:Grand\s+)?Total:\s*(\$?\d+(?:\.\d{2})?)/i);
             totalStr = match ? formatSummaryLine("TOTAL:", match[1]) : trimmedLine;
           }
-          // Parse Order Items (e.g. Potato Wedges, Burgers, Drinks)
+          // Parse Order Items
           else {
             itemsList.push(formatItemWithPrice(trimmedLine));
           }
@@ -160,17 +161,17 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Section
+        // Build Totals Section: Subtotal -> Sales Tax -> Double Lines -> Total
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
           if (subtotalStr) totalsMarkup += `[bold: on]${subtotalStr}[bold: off]\n`;
           if (taxStr) totalsMarkup += `[bold: on]${taxStr}[bold: off]\n`;
-          totalsMarkup += `--------------------------------\n`;
+          totalsMarkup += `================================\n`;
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // CLASSIC TOP-TO-BOTTOM STAR RECEIPT MARKUP
+        // PERFECTLY FORMATTED PRO RECEIPT TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -186,11 +187,11 @@ ${now_et} ET
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
 [align: center]
-[bold: on][mag: w 1; h 2]ORDER DETAILS
---------------------[mag][bold: off]
+[bold: on][mag: w 1; h 2]ORDER DETAILS[mag][bold: off]
+--------------------------------
 
 [align: left]
-[bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
+[bold: on]${formattedItemsStr}[bold: off]
 
 [align: left]
 ${totalsMarkup}
