@@ -114,17 +114,14 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // STAR MARKUP TEMPLATE WITH FLOWER ACCENTS AROUND THANK YOU
+        // TIGHT COMPACT TEMPLATE WITHOUT BLANK SPACES
         const formattedMarkup = 
 `[align: center]
 [bold: on]Cash N Dash[bold: off]
-
-512 WILLOW ST       
+512 WILLOW ST
 VINCENNES, IN 47591
-812-882-6102        
-
+812-882-6102
 ${now_et} ET
-
 [align: left]
 --------------------------------
 [bold: on]CUSTOMER DETAILS:[bold: off]
@@ -133,14 +130,11 @@ ${now_et} ET
 [align: center]
 [bold: on][mag: w 1; h 2]ORDER DETAILS
 --------------------[mag][bold: off]
-
 [align: left]
 [bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
-
 [align: center]
 --------------------------------
 [bold: on]❀ THANK YOU! ❀[bold: off]
-
 [buzzer]
 [cut]`;
 
