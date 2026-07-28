@@ -4,7 +4,7 @@ const app = express();
 app.use(express.json());
 
 // ===============================
-// SIMPLE IN-MEMORY PRINT QUEUE
+// IN-MEMORY PRINT QUEUE
 // ===============================
 let printQueue = [];
 
@@ -78,11 +78,10 @@ app.post("/print", async (req, res) => {
           .trim();
 
         const now_et = args.now_et || formatNowET();
-
         const jobId = Date.now().toString();
 
-        const starMarkup = `
-[align: center]
+        const starMarkup = 
+`[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
 [mag: w 1; h 1]   512 WILLOW ST       
@@ -103,8 +102,7 @@ ${now_et} ET
 [mag: w 1; h 1]THANK YOU!
 
 [buzzer]
-[cut]
-`.trim();
+[cut]`;
 
         const newJob = {
           id: jobId,
@@ -135,59 +133,57 @@ ${now_et} ET
 // 2) CLOUDPRNT ENDPOINTS: /cloudprnt
 // ===============================
 
-// A) Printer polls for job (POST)
+// A) Printer Polls for Job (POST)
 app.post("/cloudprnt", (req, res) => {
   console.log("CloudPRNT POST poll received.");
 
   if (printQueue.length === 0) {
-    console.log("No jobs in queue. jobReady = false.");
-    return res.json({ jobReady: false });
+    return res.status(200).json({ jobReady: false });
   }
 
-  const job = printQueue[0];
+  const activeJob = printQueue[0];
 
+  // Correct Star CloudPRNT response schema for thermal line printing
   const response = {
     jobReady: true,
-    jobToken: job.id,
-    jobType: "text",
-    url: `https://cashndash-webhook.onrender.com/cloudprnt?jobToken=${job.id}`
+    mediaTypes: ["text/vnd.star.markup"],
+    mediaType: "text/vnd.star.markup",
+    jobToken: activeJob.id
   };
 
   console.log("CloudPRNT POST response:", response);
-  return res.json(response);
+  return res.status(200).json(response);
 });
 
-// B) Printer downloads job (GET)
+// B) Printer Downloads Job (GET)
 app.get("/cloudprnt", (req, res) => {
-  const token = req.query.jobToken;
-  console.log("CloudPRNT GET download. jobToken =", token);
+  console.log("CloudPRNT GET download request.");
 
-  if (!token || printQueue.length === 0 || printQueue[0].id !== token) {
-    console.log("No matching job for token:", token);
-    return res.status(404).send("No job");
+  if (printQueue.length === 0) {
+    console.log("No pending jobs found.");
+    return res.status(404).send("No job pending");
   }
 
-  const job = printQueue[0];
-  console.log("Sending job markup for job:", job.id);
+  const activeJob = printQueue[0];
+  console.log("Serving receipt content for job ID:", activeJob.id);
 
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.send(job.markup);
+  // Set explicit header so the printer parses tags instead of printing raw text
+  res.setHeader("Content-Type", "text/vnd.star.markup; charset=utf-8");
+  return res.status(200).send(activeJob.markup);
 });
 
-// C) Printer confirms job printed (DELETE)
+// C) Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
   console.log("CloudPRNT DELETE called.");
 
   if (printQueue.length > 0) {
     const finishedJob = printQueue.shift();
     console.log(
-      `Job ${finishedJob.id} printed and removed. Remaining queue: ${printQueue.length}`
+      `Job ${finishedJob.id} printed successfully. Remaining in queue: ${printQueue.length}`
     );
-  } else {
-    console.log("DELETE called but queue is empty.");
   }
 
-  return res.send("OK");
+  return res.status(200).send("OK");
 });
 
 // ===============================
