@@ -28,7 +28,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across 32 receipt columns
+// Right-align item prices cleanly across receipt columns
 function formatItemWithPrice(line) {
   const maxLen = 32;
 
@@ -116,7 +116,8 @@ app.post("/print", async (req, res) => {
 
         const rawStr = String(rawMarkup).trim();
 
-        let customerInfoLines = [];
+        let custName = "N/A";
+        let custPhone = "N/A";
         let itemsList = [];
         let subtotalStr = "";
         let taxStr = "";
@@ -127,7 +128,7 @@ app.post("/print", async (req, res) => {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages from item list
+          // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages
           if (
             /Cash N Dash/i.test(trimmedLine) ||
             /Date:/i.test(trimmedLine) ||
@@ -138,13 +139,12 @@ app.post("/print", async (req, res) => {
           }
 
           // Parse Customer Details
-          if (
-            /^Customer Name:/i.test(trimmedLine) || 
-            /^Phone Number:/i.test(trimmedLine) || 
-            /^Name:/i.test(trimmedLine) || 
-            /^Phone:/i.test(trimmedLine)
-          ) {
-            customerInfoLines.push(trimmedLine);
+          if (/^Customer Name:/i.test(trimmedLine) || /^Name:/i.test(trimmedLine)) {
+            const nameMatch = trimmedLine.replace(/^(?:Customer\s+)?Name:\s*/i, "").trim();
+            if (nameMatch) custName = nameMatch;
+          } else if (/^Phone Number:/i.test(trimmedLine) || /^Phone:/i.test(trimmedLine)) {
+            const phoneMatch = trimmedLine.replace(/^(?:Phone\s+Number|Phone):\s*/i, "").trim();
+            if (phoneMatch) custPhone = phoneMatch;
           }
           // Parse Financial Totals
           else if (/^Subtotal:/i.test(trimmedLine)) {
@@ -166,9 +166,7 @@ app.post("/print", async (req, res) => {
           }
         }
 
-        const customerInfoStr = customerInfoLines.length > 0 
-          ? customerInfoLines.join("\n") 
-          : "Customer Name: N/A\nPhone Number: N/A";
+        const customerInfoStr = `Customer Name: ${custName}\nPhone Number: ${custPhone}`;
 
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
@@ -176,7 +174,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Section: Subtotal -> Sales Tax -> Double Line -> TOTAL
+        // Build Totals Section: Dotted Line -> Subtotal -> Sales Tax -> Double Line -> TOTAL
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
@@ -186,7 +184,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // EXACT RECEIPT MARKUP
+        // EXACT SPECIFICATION MARKUP
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -206,7 +204,7 @@ ${now_et} ET
 --------------------------------
 
 [align: left]
-[bold: on]${formattedItemsStr}[bold: off]
+[bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
 
 [align: left]
 ${totalsMarkup}
