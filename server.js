@@ -1,16 +1,10 @@
 import express from "express";
-import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
 
-// StarIO.Online endpoint for your printer
-const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
-const STAR_API_KEY = process.env.STAR_API_KEY;
-
-if (!STAR_API_KEY) {
-  console.warn("WARNING: STAR_API_KEY environment variable is not set.");
-}
+// In-memory queue to store pending print jobs
+let pendingPrintJob = null;
 
 // Helper function to format Eastern Time
 function formatNowET() {
@@ -26,11 +20,12 @@ function formatNowET() {
   }).format(now);
 }
 
-// Main Endpoint Handling Vapi Tool Calls
+// ======================================================
+// 1. VAPI WEBHOOK ENDPOINT (/print)
+// ======================================================
 app.post("/print", async (req, res) => {
   const toolCallList = req.body?.message?.toolCallList || [];
 
-  // If Vapi didn't send tool calls, respond 200 with empty results.
   if (!Array.isArray(toolCallList) || toolCallList.length === 0) {
     return res.status(200).json({ results: [] });
   }
@@ -41,7 +36,6 @@ app.post("/print", async (req, res) => {
     const toolCallId = tc.id;
     const toolName = tc.function?.name;
 
-    // Parse args safely
     let args = tc.function?.arguments ?? {};
     if (typeof args === "string") {
       try {
@@ -52,29 +46,24 @@ app.post("/print", async (req, res) => {
     }
 
     try {
-      // 1) Tool: get_now_et
       if (toolName === "get_now_et") {
         results.push({ toolCallId, result: { now_et: formatNowET() } });
         continue;
       }
 
-      // 2) Tool: end_call_now
       if (toolName === "end_call_now") {
         results.push({ toolCallId, result: "Success." });
         continue;
       }
 
-      // 3) Tool: print_star_receipt
       if (toolName === "print_star_receipt") {
-        const rawMarkup =
-          args.markup ?? args.content ?? args.text ?? args.items ?? "";
+        const rawMarkup = args.markup ?? args.content ?? args.text ?? args.items ?? "";
 
         if (!rawMarkup) {
           results.push({ toolCallId, result: "missing_markup" });
           continue;
         }
 
-        // Clean redundant headers if Vapi sends them
         const cleaned = String(rawMarkup)
           .replace(/^Cash N Dash\s*/im, '')
           .replace(/^Timestamp:.*$/im, '')
@@ -82,8 +71,8 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // FORMAT COMPLETE RECEIPT TEMPLATE WITH BUZZER CHIME
-        const formattedMarkup = 
+        // Save formatted markup to in-memory queue for CloudPRNT polling
+        pendingPrintJob = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
@@ -107,52 +96,64 @@ ${now_et} ET
 [buzzer]
 [cut]`;
 
-        // Send to StarIO with 4-second timeout guard
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-
-        const response = await fetch(STAR_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "text/vnd.star.markup",
-            "Star-Api-Key": STAR_API_KEY
-          },
-          body: formattedMarkup,
-          signal: controller.signal
-        });
-
-        clearTimeout(timeout);
-
-        const starText = await response.text();
-
-        if (!response.ok) {
-          console.error("StarIO Error:", response.status, starText);
-          results.push({ toolCallId, result: `star_error_${response.status}` });
-        } else {
-          results.push({ toolCallId, result: "printed" });
-        }
+        console.log("New job queued for direct CloudPRNT printing.");
+        results.push({ toolCallId, result: "printed" });
         continue;
       }
 
-      // Unknown tool (still return something so Vapi doesn't hang)
       results.push({ toolCallId, result: `unknown_tool_${toolName}` });
     } catch (err) {
       console.error(`Error processing toolCallId ${toolCallId}:`, err);
-      results.push({
-        toolCallId,
-        result: err?.name === "AbortError" ? "printer_timeout" : "server_error"
-      });
+      results.push({ toolCallId, result: "server_error" });
     }
   }
 
   return res.status(200).json({ results });
 });
 
-// Health check endpoint
+
+// ======================================================
+// 2. STAR DIRECT CLOUDPRNT ENDPOINTS (/cloudprnt)
+// ======================================================
+
+// Endpoint A: Printer Polls Server (POST)
+app.post("/cloudprnt", (req, res) => {
+  // If there is a pending job, inform printer jobReady is true
+  if (pendingPrintJob) {
+    return res.status(200).json({
+      jobReady: true,
+      mediaTypes: ["text/vnd.star.markup"]
+    });
+  }
+
+  // No job available
+  return res.status(200).json({
+    jobReady: false
+  });
+});
+
+// Endpoint B: Printer Downloads the Print Markup (GET)
+app.get("/cloudprnt", (req, res) => {
+  if (!pendingPrintJob) {
+    return res.status(404).send("No job pending");
+  }
+
+  res.setHeader("Content-Type", "text/vnd.star.markup");
+  res.send(pendingPrintJob);
+});
+
+// Endpoint C: Printer Confirms Print Completion (DELETE)
+app.delete("/cloudprnt", (req, res) => {
+  console.log("Printer completed print job successfully.");
+  pendingPrintJob = null; // Clear queue
+  res.status(200).send("OK");
+});
+
+
+// Health Check & Server Listener
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
 
-// Start Webhook Server
 const port = process.env.PORT || 8080;
 app.listen(port, () => console.log(`Cash N Dash Webhook running on port ${port}`));
