@@ -106,31 +106,31 @@ app.post("/print", async (req, res) => {
         const formattedItemsStr = itemsList.join("\n");
         const now_et = args.now_et || formatNowET();
 
-        // PRO-GRADE STAR DOCUMENT MARKUP TEMPLATE
+        // STANDARD COMPACT STAR DOCUMENT MARKUP TEMPLATE
         const formattedMarkup = 
 `[align: center]
-[bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
+[bold: on]Cash N Dash[bold: off]
 
-[mag: w 1; h 1]   512 WILLOW ST       
-   VINCENNES, IN 47591
-   812-882-6102        
+512 WILLOW ST       
+VINCENNES, IN 47591
+812-882-6102        
 
 ${now_et} ET
 
 [align: left]
 --------------------------------
-[bold: on][mag: w 1; h 1]${customerInfo.trim()}[mag][bold: off]
+[bold: on]${customerInfo.trim()}[bold: off]
 --------------------------------
 [align: center]
-[bold: on][mag: w 2; h 2]ORDER DETAILS[mag][bold: off]
+[bold: on]ORDER DETAILS[bold: off]
 --------------------------------
 
 [align: left]
-[bold: on][mag: w 2; h 2]${formattedItemsStr}[mag][bold: off]
+[bold: on]${formattedItemsStr}[bold: off]
 
 --------------------------------
 [align: center]
-[bold: on][mag: w 2; h 2]THANK YOU![mag][bold: off]
+[bold: on]THANK YOU![bold: off]
 
 [buzzer]
 [cut]`;
