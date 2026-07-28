@@ -1,12 +1,18 @@
 import express from "express";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
 
-// In-memory print queue
-let printQueue = [];
+// StarIO.Online Endpoint for your TSP100IV
+const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/bcb6e3f3/q";
+const STAR_API_KEY = process.env.STAR_API_KEY;
 
-// Helper: format Eastern Time
+if (!STAR_API_KEY) {
+  console.warn("WARNING: STAR_API_KEY environment variable is not set.");
+}
+
+// Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
   return new Intl.DateTimeFormat("en-US", {
@@ -21,35 +27,7 @@ function formatNowET() {
 }
 
 // ======================================================
-// ESC/POS & STAR PRINTER COMMAND BYTE CONSTANTS
-// ======================================================
-const ESC = "\x1B";
-const GS  = "\x1D";
-
-const CMD_RESET        = ESC + "@";
-const CMD_ALIGN_CENTER = ESC + "a" + "\x01";
-const CMD_ALIGN_LEFT   = ESC + "a" + "\x00";
-
-// Font Sizes (Height & Width multipliers)
-const CMD_SIZE_NORMAL  = GS + "!" + "\x00"; // 1x Size
-const CMD_SIZE_LARGE   = GS + "!" + "\x11"; // 2x Size
-const CMD_SIZE_XLARGE  = GS + "!" + "\x22"; // 3x Size
-const CMD_SIZE_HUGE    = GS + "!" + "\x33"; // 4x Size (Massive font)
-
-// Styling
-const CMD_BOLD_ON  = ESC + "E" + "\x01";
-const CMD_BOLD_OFF = ESC + "E" + "\x00";
-
-// Paper Cut & Buzzer
-const CMD_BUZZER   = ESC + "\x07";
-const CMD_FEED_3   = ESC + "d" + "\x04";
-const CMD_STAR_CUT = ESC + "d" + "\x02";
-
-// Short divider to fit on 1 single line without wrapping
-const LINE_DIVIDER = "----------------------------\n";
-
-// ======================================================
-// 1. VAPI WEBHOOK ENDPOINT (/print)
+// MAIN VAPI WEBHOOK ROUTE (/print)
 // ======================================================
 app.post("/print", async (req, res) => {
   const toolCallList = req.body?.message?.toolCallList || [];
@@ -97,19 +75,15 @@ app.post("/print", async (req, res) => {
           .replace(/^Timestamp:.*$/im, "")
           .trim();
 
-        // -----------------------------------------------------
-        // PARSE CUSTOMER INFO & ORDER ITEMS
-        // -----------------------------------------------------
+        // Separate Customer Info from Order Items
         let customerInfo = "";
         let itemsList = [];
 
         const lines = rawStr.split("\n");
-
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Extract Customer Name and Phone Number
           if (
             /^Customer Name:/i.test(trimmedLine) || 
             /^Phone Number:/i.test(trimmedLine) || 
@@ -118,7 +92,7 @@ app.post("/print", async (req, res) => {
           ) {
             customerInfo += trimmedLine + "\n";
           } else {
-            // Remove extra leading bullets and add exactly ONE '*'
+            // Clean extra bullets and ensure exactly one asterisk
             const cleanItem = trimmedLine.replace(/^[\*\s\-]+/g, "").trim();
             if (cleanItem) {
               itemsList.push(`* ${cleanItem}`);
@@ -128,118 +102,78 @@ app.post("/print", async (req, res) => {
 
         const formattedItemsStr = itemsList.join("\n");
         const now_et = args.now_et || formatNowET();
-        const jobId = Date.now().toString();
 
-        // -----------------------------------------------------
-        // BUILD RECEIPT DATA
-        // -----------------------------------------------------
-        const receiptData = 
-          CMD_RESET +
-          
-          // HEADER (Centered, Extra Large & Bold)
-          CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + 
-          CMD_SIZE_XLARGE + "Cash N Dash\n" +
-          "512 WILLOW ST\n" +
-          "VINCENNES, IN 47591\n" +
-          "812-882-6102\n\n" +
-          CMD_SIZE_LARGE + now_et + " ET\n\n" +
-          CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+        // PRO-GRADE STAR DOCUMENT MARKUP TEMPLATE
+        const formattedMarkup = 
+`[align: center]
+[bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
-          // CUSTOMER DETAILS (Left-Aligned, Large & Bold, Above Order Details)
-          CMD_ALIGN_LEFT +
-          LINE_DIVIDER +
-          CMD_BOLD_ON + CMD_SIZE_LARGE + (customerInfo ? customerInfo.trim() + "\n" : "") + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          LINE_DIVIDER +
+[mag: w 1; h 1]   512 WILLOW ST       
+   VINCENNES, IN 47591
+   812-882-6102        
 
-          // ORDER SECTION HEADER (Centered, XLARGE Bold)
-          CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_XLARGE + "ORDER DETAILS\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          CMD_ALIGN_LEFT +
-          LINE_DIVIDER +
+${now_et} ET
 
-          // ORDER ITEMS (Left-Aligned, Massive 4x Font + Bold + Single '*')
-          CMD_BOLD_ON + CMD_SIZE_HUGE + formattedItemsStr + "\n\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
+[align: left]
+--------------------------------
+[bold: on][mag: w 1; h 1]${customerInfo.trim()}[mag][bold: off]
+--------------------------------
+[align: center]
+[bold: on][mag: w 2; h 2]ORDER DETAILS[mag][bold: off]
+--------------------------------
 
-          // FOOTER & CUTTER (Centered, XLARGE Bold)
-          LINE_DIVIDER +
-          CMD_ALIGN_CENTER +
-          CMD_BOLD_ON + CMD_SIZE_XLARGE + "THANK YOU!\n" + CMD_SIZE_NORMAL + CMD_BOLD_OFF +
-          LINE_DIVIDER +
-          
-          CMD_BUZZER +
-          CMD_FEED_3 +
-          CMD_STAR_CUT;
+[align: left]
+[bold: on][mag: w 2; h 2]${formattedItemsStr}[mag][bold: off]
 
-        printQueue.push({ id: jobId, data: receiptData });
-        console.log(`New job queued (ID: ${jobId}). Queue depth: ${printQueue.length}`);
+--------------------------------
+[align: center]
+[bold: on][mag: w 2; h 2]THANK YOU![mag][bold: off]
 
-        results.push({ toolCallId, result: "printed" });
+[buzzer]
+[cut]`;
+
+        // Send payload directly to StarIO Cloud API
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+
+        const response = await fetch(STAR_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/vnd.star.markup",
+            "Star-Api-Key": STAR_API_KEY
+          },
+          body: formattedMarkup,
+          signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        const starText = await response.text();
+
+        if (!response.ok) {
+          console.error("StarIO Error:", response.status, starText);
+          results.push({ toolCallId, result: `star_error_${response.status}` });
+        } else {
+          console.log("Job printed via StarIO!");
+          results.push({ toolCallId, result: "printed" });
+        }
         continue;
       }
 
       results.push({ toolCallId, result: `unknown_tool_${toolName}` });
     } catch (err) {
       console.error(`Error processing toolCallId ${toolCallId}:`, err);
-      results.push({ toolCallId, result: "server_error" });
+      results.push({
+        toolCallId,
+        result: err?.name === "AbortError" ? "printer_timeout" : "server_error"
+      });
     }
   }
 
   return res.status(200).json({ results });
 });
 
-
-// ======================================================
-// 2. STAR DIRECT CLOUDPRNT ENDPOINTS (/cloudprnt)
-// ======================================================
-
-app.post("/cloudprnt", (req, res) => {
-  if (printQueue.length > 0) {
-    const activeJob = printQueue[0];
-
-    return res.status(200).json({
-      jobReady: true,
-      mediaTypes: ["application/vnd.star.starprntcore"],
-      mediaType: "application/vnd.star.starprntcore",
-      jobToken: activeJob.id
-    });
-  }
-
-  return res.status(200).json({ jobReady: false });
-});
-
-app.get("/cloudprnt", (req, res) => {
-  const token = req.query.jobToken;
-
-  if (printQueue.length === 0) {
-    return res.status(404).send("No pending jobs");
-  }
-
-  const activeJob = printQueue[0];
-
-  if (token && token !== activeJob.id) {
-    return res.status(404).send("Invalid job token");
-  }
-
-  res.setHeader("Content-Type", "application/vnd.star.starprntcore");
-  return res.status(200).send(activeJob.data);
-});
-
-app.delete("/cloudprnt", (req, res) => {
-  const token = req.query.jobToken;
-
-  if (printQueue.length > 0) {
-    if (!token || printQueue[0].id === token) {
-      const finishedJob = printQueue.shift();
-      console.log(`Job ${finishedJob.id} completed & removed. Remaining: ${printQueue.length}`);
-    } else {
-      console.warn(`DELETE received for mismatched token ${token}. Expected ${printQueue[0].id}`);
-    }
-  }
-
-  return res.status(200).json({ success: true });
-});
-
+// Health check endpoint
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
