@@ -112,10 +112,13 @@ app.post("/print", async (req, res) => {
           ? itemsList.join("\n") 
           : `* ${rawStr}`;
 
-        // ULTRA-COMPACT TICKET TEMPLATE
+        const now_et = args.now_et || formatNowET();
+
+        // ULTRA-COMPACT TICKET TEMPLATE WITH DATE & TIME
         const formattedMarkup = 
 `[align: center]
 [bold: on]Cash N Dash[bold: off]
+${now_et} ET
 [align: left]
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
