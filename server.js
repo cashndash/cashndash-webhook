@@ -114,7 +114,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // COMPACT STAR MARKUP TEMPLATE (CUSTOMER FIRST -> ORDER DETAILS -> ASTERISK ITEMS)
+        // STAR MARKUP TEMPLATE WITH BIG BOLD ORDER DETAILS
         const formattedMarkup = 
 `[align: center]
 [bold: on]Cash N Dash[bold: off]
@@ -131,11 +131,11 @@ ${now_et} ET
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
 [align: center]
-[bold: on]ORDER DETAILS[bold: off]
+[bold: on][mag: w 2; h 2]ORDER DETAILS[mag][bold: off]
 --------------------------------
 
 [align: left]
-[bold: on]${formattedItemsStr}[bold: off]
+[bold: on][mag: w 2; h 2]${formattedItemsStr}[mag][bold: off]
 
 --------------------------------
 [align: center]
