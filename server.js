@@ -3,12 +3,10 @@ import express from "express";
 const app = express();
 app.use(express.json());
 
-// ===============================
-// IN-MEMORY PRINT QUEUE
-// ===============================
+// In-memory queue to hold pending print jobs
 let printQueue = [];
 
-// Helper: format Eastern Time
+// Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
   return new Intl.DateTimeFormat("en-US", {
@@ -22,14 +20,13 @@ function formatNowET() {
   }).format(now);
 }
 
-// ===============================
-// 1) VAPI WEBHOOK: /print
-// ===============================
+// ======================================================
+// 1. VAPI WEBHOOK ENDPOINT (/print)
+// ======================================================
 app.post("/print", async (req, res) => {
   const toolCallList = req.body?.message?.toolCallList || [];
 
   if (!Array.isArray(toolCallList) || toolCallList.length === 0) {
-    console.log("No tool calls in request.");
     return res.status(200).json({ results: [] });
   }
 
@@ -49,25 +46,20 @@ app.post("/print", async (req, res) => {
     }
 
     try {
-      // Tool: get_now_et
       if (toolName === "get_now_et") {
         results.push({ toolCallId, result: { now_et: formatNowET() } });
         continue;
       }
 
-      // Tool: end_call_now
       if (toolName === "end_call_now") {
         results.push({ toolCallId, result: "Success." });
         continue;
       }
 
-      // Tool: print_star_receipt
       if (toolName === "print_star_receipt") {
-        const rawMarkup =
-          args.markup ?? args.content ?? args.text ?? args.items ?? "";
+        const rawMarkup = args.markup ?? args.content ?? args.text ?? args.items ?? "";
 
         if (!rawMarkup) {
-          console.log("Missing markup in print_star_receipt.");
           results.push({ toolCallId, result: "missing_markup" });
           continue;
         }
@@ -80,7 +72,8 @@ app.post("/print", async (req, res) => {
         const now_et = args.now_et || formatNowET();
         const jobId = Date.now().toString();
 
-        const starMarkup = 
+        // Star Document Markup format
+        const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 
@@ -104,21 +97,13 @@ ${now_et} ET
 [buzzer]
 [cut]`;
 
-        const newJob = {
-          id: jobId,
-          markup: starMarkup
-        };
-
-        printQueue.push(newJob);
-        console.log(
-          `New job queued (ID: ${jobId}). Queue depth: ${printQueue.length}`
-        );
+        printQueue.push({ id: jobId, markup: formattedMarkup });
+        console.log(`New job queued (ID: ${jobId}). Queue depth: ${printQueue.length}`);
 
         results.push({ toolCallId, result: "printed" });
         continue;
       }
 
-      // Unknown tool
       results.push({ toolCallId, result: `unknown_tool_${toolName}` });
     } catch (err) {
       console.error(`Error processing toolCallId ${toolCallId}:`, err);
@@ -129,74 +114,52 @@ ${now_et} ET
   return res.status(200).json({ results });
 });
 
-// ===============================
-// 2) CLOUDPRNT ENDPOINTS: /cloudprnt
-// ===============================
 
-// A) Printer Polls for Job (POST)
+// ======================================================
+// 2. STAR CLOUDPRNT DIRECT ENDPOINTS (/cloudprnt)
+// ======================================================
+
+// A) Printer Polls Server (POST)
 app.post("/cloudprnt", (req, res) => {
-  console.log("CloudPRNT POST poll received.");
+  if (printQueue.length > 0) {
+    const activeJob = printQueue[0];
 
-  if (printQueue.length === 0) {
-    return res.status(200).json({ jobReady: false });
+    return res.status(200).json({
+      jobReady: true,
+      mediaTypes: ["text/vnd.star.markup"],
+      mediaType: "text/vnd.star.markup",
+      jobToken: activeJob.id
+    });
   }
 
-  const activeJob = printQueue[0];
-
-  // Correct Star CloudPRNT response schema for thermal line printing
-  const response = {
-    jobReady: true,
-    mediaTypes: ["text/vnd.star.markup"],
-    mediaType: "text/vnd.star.markup",
-    jobToken: activeJob.id
-  };
-
-  console.log("CloudPRNT POST response:", response);
-  return res.status(200).json(response);
+  return res.status(200).json({ jobReady: false });
 });
 
 // B) Printer Downloads Job (GET)
 app.get("/cloudprnt", (req, res) => {
-  console.log("CloudPRNT GET download request.");
-
   if (printQueue.length === 0) {
-    console.log("No pending jobs found.");
-    return res.status(404).send("No job pending");
+    return res.status(404).send("No pending jobs");
   }
 
   const activeJob = printQueue[0];
-  console.log("Serving receipt content for job ID:", activeJob.id);
-
-  // Set explicit header so the printer parses tags instead of printing raw text
   res.setHeader("Content-Type", "text/vnd.star.markup; charset=utf-8");
   return res.status(200).send(activeJob.markup);
 });
 
 // C) Printer Confirms Print Completion (DELETE)
 app.delete("/cloudprnt", (req, res) => {
-  console.log("CloudPRNT DELETE called.");
-
   if (printQueue.length > 0) {
     const finishedJob = printQueue.shift();
-    console.log(
-      `Job ${finishedJob.id} printed successfully. Remaining in queue: ${printQueue.length}`
-    );
+    console.log(`Job ${finishedJob.id} printed and removed. Remaining: ${printQueue.length}`);
   }
-
-  return res.status(200).send("OK");
+  return res.status(200).json({ success: true });
 });
 
-// ===============================
-// HEALTH CHECK
-// ===============================
+
+// Health Check & Listener
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
 
-// ===============================
-// START SERVER
-// ===============================
 const port = process.env.PORT || 8080;
-app.listen(port, () =>
-  console.log(`Cash N Dash Webhook running on port ${port}`)
-);
+app.listen(port, () => console.log(`Cash N Dash Webhook running on port ${port}`));
