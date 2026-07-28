@@ -12,7 +12,6 @@ if (!STAR_API_KEY) {
   console.warn("WARNING: STAR_API_KEY environment variable is not set.");
 }
 
-// In-memory queue reference
 let printQueue = [];
 
 // Helper function to format Eastern Time
@@ -29,16 +28,15 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to right-align item prices cleanly across 32 receipt columns
+// Right-align item prices cleanly across 32 receipt columns
 function formatItemWithPrice(line) {
-  const maxLen = 32; // Standard 80mm receipt width in standard font
+  const maxLen = 32;
 
-  // Extract price if present anywhere in the string (e.g., "$7.99 Bacon Cheeseburger" or "Bacon Cheeseburger $7.99")
+  // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-    // Remove price and extraneous symbols from item description
     let itemName = line
       .replace(/\$?(\d+\.\d{2})/, "")
       .replace(/^[\*\s\-:]+/g, "")
@@ -46,20 +44,23 @@ function formatItemWithPrice(line) {
       .trim();
 
     const formattedName = `* ${itemName}`;
-    const spaceNeeded = maxLen - formattedName.length - priceVal.length;
+    const maxNameLen = maxLen - priceVal.length - 1;
+    let finalName = formattedName;
 
-    if (spaceNeeded > 0) {
-      return `${formattedName}${" ".repeat(spaceNeeded)}${priceVal}`;
+    if (formattedName.length > maxNameLen) {
+      finalName = formattedName.substring(0, maxNameLen - 1) + ".";
     }
-    return `${formattedName} ${priceVal}`;
+
+    const spaceNeeded = maxLen - finalName.length - priceVal.length;
+    return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
   }
 
-  // Fallback if line has no price attached
+  // Fallback if line has no price
   const cleanLine = line.replace(/^[\*\s\-]+/g, "").trim();
   return `* ${cleanLine}`;
 }
 
-// Helper function to right-align summary lines across 32 receipt columns
+// Right-align summary lines across 32 receipt columns
 function formatSummaryLine(label, amount) {
   const maxLen = 32;
   const spaceNeeded = maxLen - label.length - amount.length;
@@ -113,10 +114,7 @@ app.post("/print", async (req, res) => {
           continue;
         }
 
-        const rawStr = String(rawMarkup)
-          .replace(/^Cash N Dash\s*/im, "")
-          .replace(/^Timestamp:.*$/im, "")
-          .trim();
+        const rawStr = String(rawMarkup).trim();
 
         let customerInfoLines = [];
         let itemsList = [];
@@ -128,6 +126,16 @@ app.post("/print", async (req, res) => {
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
+
+          // Ignore Vapi header/footer noise inside raw text
+          if (
+            /Cash N Dash/i.test(trimmedLine) ||
+            /^Date:/i.test(trimmedLine) ||
+            /Thank you/i.test(trimmedLine) ||
+            /^Timestamp:/i.test(trimmedLine)
+          ) {
+            continue;
+          }
 
           // Parse Customer Details
           if (
@@ -143,8 +151,8 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             subtotalStr = val ? formatSummaryLine("Subtotal:", val) : trimmedLine;
-          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax:/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/^(?:Sales\s+)?Tax:\s*(\$?\d+(?:\.\d{2})?)/i);
+          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/(?:Sales\s+)?Tax(?:\s*\(\d+%\))?:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             taxStr = val ? formatSummaryLine("Sales Tax:", val) : trimmedLine;
           } else if (/^Total:/i.test(trimmedLine) || /^Grand Total:/i.test(trimmedLine)) {
@@ -152,7 +160,7 @@ app.post("/print", async (req, res) => {
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             totalStr = val ? formatSummaryLine("TOTAL:", val) : trimmedLine;
           }
-          // Parse Order Items
+          // Parse Genuine Food Order Items
           else {
             itemsList.push(formatItemWithPrice(trimmedLine));
           }
@@ -160,15 +168,15 @@ app.post("/print", async (req, res) => {
 
         const customerInfoStr = customerInfoLines.length > 0 
           ? customerInfoLines.join("\n") 
-          : "Customer: N/A";
+          : "Customer Name: N/A\nPhone Number: N/A";
 
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
-          : `* ${rawStr}`;
+          : "* No Items Detected";
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Section: Subtotal -> Sales Tax -> Double Lines -> TOTAL
+        // Build Totals Section: Subtotal -> Sales Tax -> Double Line -> TOTAL
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
@@ -178,7 +186,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // PERFECT PRO RECEIPT MARKUP TEMPLATE
+        // EXACT MATCH TO HANDWRITTEN TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -204,12 +212,11 @@ ${now_et} ET
 ${totalsMarkup}
 [align: center]
 --------------------------------
-[bold: on]❀ THANK YOU! ❀[bold: off]
+[bold: on]THANK YOU![bold: off]
 
 [buzzer]
 [cut]`;
 
-        // Send payload directly to StarIO Cloud API
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
 
@@ -250,7 +257,6 @@ ${totalsMarkup}
   return res.status(200).json({ results });
 });
 
-// Manual Queue Clear Endpoint
 app.get("/clear", (_req, res) => {
   const count = printQueue.length;
   printQueue = [];
@@ -258,7 +264,6 @@ app.get("/clear", (_req, res) => {
   res.status(200).send(`Queue cleared! Removed ${count} pending jobs.`);
 });
 
-// Health check endpoint
 app.get("/", (_req, res) => {
   res.send("Cash N Dash Webhook Running");
 });
