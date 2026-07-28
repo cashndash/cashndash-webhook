@@ -112,24 +112,15 @@ app.post("/print", async (req, res) => {
           ? itemsList.join("\n") 
           : `* ${rawStr}`;
 
-        const now_et = args.now_et || formatNowET();
-
-        // TIGHT COMPACT TEMPLATE WITHOUT BLANK SPACES
+        // ULTRA-COMPACT TICKET TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on]Cash N Dash[bold: off]
-512 WILLOW ST
-VINCENNES, IN 47591
-812-882-6102
-${now_et} ET
 [align: left]
---------------------------------
-[bold: on]CUSTOMER DETAILS:[bold: off]
 [bold: on]${customerInfoStr}[bold: off]
 --------------------------------
 [align: center]
-[bold: on][mag: w 1; h 2]ORDER DETAILS
---------------------[mag][bold: off]
+[bold: on][mag: w 1; h 2]ORDER DETAILS[mag][bold: off]
 [align: left]
 [bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
 [align: center]
