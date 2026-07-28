@@ -29,7 +29,32 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to right-align summary lines (Subtotal, Tax, Total) across 32 columns
+// Helper function to right-align item prices cleanly across 32 receipt columns
+function formatItemWithPrice(line) {
+  const maxLen = 32;
+  // Match item name and price at the end (e.g., "Potato Wedges $3.99" or "* Potato Wedges - 3.99")
+  const priceMatch = line.match(/^(.*?)(?::|\s|-)+(\$?\d+(?:\.\d{2})?)$/);
+
+  if (priceMatch) {
+    let itemName = priceMatch[1].replace(/^[\*\s\-]+/g, "").trim();
+    let priceVal = priceMatch[2].trim();
+    if (!priceVal.startsWith("$")) priceVal = `$${priceVal}`;
+
+    const formattedName = `* ${itemName}`;
+    const spaceNeeded = maxLen - formattedName.length - priceVal.length;
+
+    if (spaceNeeded > 0) {
+      return `${formattedName}${" ".repeat(spaceNeeded)}${priceVal}`;
+    }
+    return `${formattedName} ${priceVal}`;
+  }
+
+  // Fallback if line has no price attached
+  const cleanLine = line.replace(/^[\*\s\-]+/g, "").trim();
+  return `* ${cleanLine}`;
+}
+
+// Helper function to right-align summary lines (Subtotal, Tax, Total)
 function formatSummaryLine(label, amount) {
   const maxLen = 32;
   const spaceNeeded = maxLen - label.length - amount.length;
@@ -108,7 +133,7 @@ app.post("/print", async (req, res) => {
           ) {
             customerInfoLines.push(trimmedLine);
           }
-          // Parse Financials
+          // Parse Financial Totals
           else if (/^Subtotal:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
             subtotalStr = match ? formatSummaryLine("Subtotal:", match[1]) : trimmedLine;
@@ -119,12 +144,9 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/^(?:Grand\s+)?Total:\s*(\$?\d+(?:\.\d{2})?)/i);
             totalStr = match ? formatSummaryLine("TOTAL:", match[1]) : trimmedLine;
           }
-          // Parse Items
+          // Parse Order Items (e.g. Potato Wedges, Burgers, Drinks)
           else {
-            const cleanItem = trimmedLine.replace(/^[\*\s\-]+/g, "").trim();
-            if (cleanItem) {
-              itemsList.push(`* ${cleanItem}`);
-            }
+            itemsList.push(formatItemWithPrice(trimmedLine));
           }
         }
 
@@ -138,7 +160,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Markup Section
+        // Build Totals Section
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
@@ -148,7 +170,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // REGULAR CLASSIC STAR RECEIPT TEMPLATE
+        // CLASSIC TOP-TO-BOTTOM STAR RECEIPT MARKUP
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
