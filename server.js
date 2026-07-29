@@ -14,6 +14,13 @@ if (!STAR_API_KEY) {
 
 let printQueue = [];
 
+// ======================================================
+// PRINTER CONFIGURATION
+// ======================================================
+const MAX_COLS = 48; // Standard 80mm thermal receipt width
+const DOTTED_LINE = "-".repeat(MAX_COLS);
+const DOUBLE_LINE = "=".repeat(MAX_COLS);
+
 // Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
@@ -28,10 +35,8 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across standard 32 receipt columns without leading asterisks
+// Right-align item prices cleanly across the full 48 columns
 function formatItemWithPrice(line) {
-  const maxLen = 32;
-
   // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
@@ -44,14 +49,15 @@ function formatItemWithPrice(line) {
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    const maxNameLen = maxLen - priceVal.length - 1;
+    const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalName = itemName;
 
+    // Truncate long item names so they don't wrap and push the price down
     if (itemName.length > maxNameLen) {
       finalName = itemName.substring(0, maxNameLen - 1) + ".";
     }
 
-    const spaceNeeded = maxLen - finalName.length - priceVal.length;
+    const spaceNeeded = MAX_COLS - finalName.length - priceVal.length;
     return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
   }
 
@@ -59,10 +65,9 @@ function formatItemWithPrice(line) {
   return line.replace(/^[\*\s\-]+/g, "").trim();
 }
 
-// Right-align summary lines across 32 receipt columns
+// Right-align summary lines across the full 48 columns
 function formatSummaryLine(label, amount) {
-  const maxLen = 32;
-  const spaceNeeded = maxLen - label.length - amount.length;
+  const spaceNeeded = MAX_COLS - label.length - amount.length;
   if (spaceNeeded > 0) {
     return `${label}${" ".repeat(spaceNeeded)}${amount}`;
   }
@@ -181,11 +186,11 @@ app.post("/print", async (req, res) => {
           ? itemsList.join("\n") 
           : "[bold: on]No Items Detected[bold: off]";
 
-        // Build Special Notes Block (Enclosed between dotted lines)
+        // Build Special Notes Block (Enclosed between dynamic dotted lines)
         let specialMarkup = "";
         if (specialNotesList.length > 0) {
           specialMarkup = 
-`--------------------------------
+`${DOTTED_LINE}
 [bold: on]SPECIAL INSTRUCTIONS:[bold: off]
 [bold: on]${specialNotesList.join("\n")}[bold: off]
 `;
@@ -193,40 +198,40 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // COMPACT FINANCIAL BLOCK
-        let totalsMarkup = `--------------------------------\n`;
+        // FULL-WIDTH FINANCIAL BLOCK
+        let totalsMarkup = `${DOTTED_LINE}\n`;
         if (subtotalVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
         }
         if (taxVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
         }
-        totalsMarkup += `================================\n`;
+        totalsMarkup += `${DOUBLE_LINE}\n`;
         if (totalVal) {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // COMPACT RECEIPT TEMPLATE WITH SPECIAL INSTRUCTIONS
+        // EXACT EDGE-TO-EDGE RECEIPT TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 512 WILLOW ST | VINCENNES, IN 47591
 812-882-6102 | ${now_et} ET
 [align: left]
---------------------------------
+${DOTTED_LINE}
 [bold: on]CUSTOMER DETAILS:[bold: off]
 [bold: on]${customerInfoStr}[bold: off]
---------------------------------
+${DOTTED_LINE}
 [align: center]
 [bold: on][mag: w 1; h 2]KITCHEN ORDER[mag][bold: off]
---------------------------------
+${DOTTED_LINE}
 [align: left]
 ${formattedItemsStr}
 
 ${specialMarkup}[align: left]
 ${totalsMarkup}
 [align: center]
---------------------------------
+${DOTTED_LINE}
 [bold: on]THANK YOU![bold: off]
 
 [buzzer]
