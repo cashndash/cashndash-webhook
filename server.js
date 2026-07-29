@@ -118,6 +118,7 @@ app.post("/print", async (req, res) => {
         let custName = "N/A";
         let custPhone = "N/A";
         let itemsList = [];
+        let specialNotesList = [];
         let subtotalVal = "";
         let taxVal = "";
         let totalVal = "";
@@ -163,6 +164,10 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
           }
+          // Parse Special Instructions / Notes
+          else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
+            specialNotesList.push(trimmedLine);
+          }
           // Parse Food Items
           else {
             const formatted = formatItemWithPrice(trimmedLine);
@@ -175,6 +180,16 @@ app.post("/print", async (req, res) => {
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
           : "[bold: on]No Items Detected[bold: off]";
+
+        // Build Special Notes Block (Enclosed between dotted lines)
+        let specialMarkup = "";
+        if (specialNotesList.length > 0) {
+          specialMarkup = 
+`--------------------------------
+[bold: on]SPECIAL INSTRUCTIONS:[bold: off]
+[bold: on]${specialNotesList.join("\n")}[bold: off]
+`;
+        }
 
         const now_et = args.now_et || formatNowET();
 
@@ -191,7 +206,7 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // COMPACT RECEIPT TEMPLATE
+        // COMPACT RECEIPT TEMPLATE WITH SPECIAL INSTRUCTIONS
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -207,7 +222,8 @@ app.post("/print", async (req, res) => {
 --------------------------------
 [align: left]
 ${formattedItemsStr}
-[align: left]
+
+${specialMarkup}[align: left]
 ${totalsMarkup}
 [align: center]
 --------------------------------
