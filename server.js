@@ -17,10 +17,9 @@ let printQueue = [];
 // ======================================================
 // PRINTER CONFIGURATION
 // ======================================================
-const MAX_COLS = 48; // Standard 80mm thermal receipt width (your formatting)
+const MAX_COLS = 48; // Standard 80mm thermal receipt width
 const DOTTED_LINE = "-".repeat(MAX_COLS);
 const DOUBLE_LINE = "=".repeat(MAX_COLS);
-const SPECIAL_BOX_LINE = "****************************";
 
 // Helper function to format Eastern Time
 function formatNowET() {
@@ -38,12 +37,11 @@ function formatNowET() {
 
 // Right-align item prices cleanly across the full 48 columns
 function formatItemWithPrice(line) {
-  // Extract FIRST price if present anywhere in the string
+  // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
-
+  
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-
     // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
       .replace(/\$?(\d+\.\d{2})/, "")
@@ -74,12 +72,6 @@ function formatSummaryLine(label, amount) {
     return `${label}${" ".repeat(spaceNeeded)}${amount}`;
   }
   return `${label} ${amount}`;
-}
-
-// Kitchen big-font wrapper (keeps readability)
-function kitchenBig(line) {
-  const safe = String(line ?? "").replace(/\r/g, "");
-  return `[bold: on][mag: h 2]${safe}[mag][bold: off]`;
 }
 
 // ======================================================
@@ -136,23 +128,22 @@ app.post("/print", async (req, res) => {
         let taxVal = "";
         let totalVal = "";
 
-        // IMPORTANT: Track boxed specials so we don't rewrite lines inside the box
+        // Track when we are inside Vapi's special boxed block
         let inBox = false;
 
         const lines = rawStr.split("\n");
         for (let line of lines) {
-          const trimmedLine = String(line).trim();
+          const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Toggle on special box delimiter and print it big as-is
-          if (trimmedLine === SPECIAL_BOX_LINE) {
+          // Toggle inBox status for Vapi special boxed blocks
+          if (/^\*{10,}$/.test(trimmedLine)) {
             inBox = !inBox;
-            itemsList.push(kitchenBig(SPECIAL_BOX_LINE));
+            itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
             continue;
           }
 
           // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages
-          // NOTE: your assistant now sends only Customer Name/Phone + receipt, but keep your filters
           if (
             /Cash N Dash/i.test(trimmedLine) ||
             /Date:/i.test(trimmedLine) ||
@@ -168,63 +159,53 @@ app.post("/print", async (req, res) => {
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custName = m[1].replace(/[\*\s]+/g, " ").trim();
             }
-            continue;
-          }
-
-          if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
+          } 
+          else if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
             const m = trimmedLine.match(/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i);
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custPhone = m[1].replace(/[\*\s]+/g, " ").trim();
             }
-            continue;
           }
-
           // Parse Financial Totals
-          if (/^Subtotal/i.test(trimmedLine)) {
+          else if (/^Subtotal/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) subtotalVal = `$${match[1]}`;
-            continue;
-          }
-
-          if (/tax/i.test(trimmedLine)) {
+          } 
+          else if (/tax/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) taxVal = `$${match[1]}`;
-            continue;
-          }
-
-          if (/^total/i.test(trimmedLine.toLowerCase())) {
+          } 
+          else if (/total/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
-            continue;
           }
-
-          // Parse Special Instructions / Notes
-          if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
+          // Parse Separate Special Instructions / Notes
+          else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
             specialNotesList.push(trimmedLine);
-            continue;
           }
-
-          // Parse Food Items
-          // CRITICAL CHANGE:
-          // - If inside the special box, print line verbatim in big font (preserves spacing & dual prices)
-          // - Otherwise, keep your right-align formatting for normal lines
-          if (inBox) {
-            itemsList.push(kitchenBig(trimmedLine));
-          } else {
-            const formatted = formatItemWithPrice(trimmedLine);
-            itemsList.push(kitchenBig(formatted));
+          // Parse Food Items & Boxed Content
+          else {
+            if (inBox) {
+              // Print verbatim in BIG FONT without running price extraction
+              itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
+            } else {
+              // Standard item: right-align price cleanly
+              const formatted = formatItemWithPrice(trimmedLine);
+              itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
+            }
           }
         }
 
         const customerInfoStr = `Customer Name: ${custName}\nPhone Number: ${custPhone}`;
 
-        const formattedItemsStr =
-          itemsList.length > 0 ? itemsList.join("\n") : "[bold: on]No Items Detected[bold: off]";
+        const formattedItemsStr = itemsList.length > 0 
+          ? itemsList.join("\n") 
+          : "[bold: on]No Items Detected[bold: off]";
 
-        // Build Special Notes Block
+        // Build Special Notes Block if explicitly passed separately
         let specialMarkup = "";
         if (specialNotesList.length > 0) {
-          specialMarkup =
+          specialMarkup = 
 `${DOTTED_LINE}
 [bold: on]SPECIAL INSTRUCTIONS:[bold: off]
 [bold: on]${specialNotesList.join("\n")}[bold: off]
@@ -246,8 +227,8 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // FULL RECEIPT TEMPLATE (your existing)
-        const formattedMarkup =
+        // EXACT RECEIPT TEMPLATE
+        const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 512 WILLOW ST | VINCENNES, IN 47591
