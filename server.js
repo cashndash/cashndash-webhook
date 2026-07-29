@@ -17,9 +17,10 @@ let printQueue = [];
 // ======================================================
 // PRINTER CONFIGURATION
 // ======================================================
-const MAX_COLS = 48; // Standard 80mm thermal receipt width
+const MAX_COLS = 48; // Standard 80mm thermal receipt width (your formatting)
 const DOTTED_LINE = "-".repeat(MAX_COLS);
 const DOUBLE_LINE = "=".repeat(MAX_COLS);
+const SPECIAL_BOX_LINE = "****************************";
 
 // Helper function to format Eastern Time
 function formatNowET() {
@@ -37,11 +38,12 @@ function formatNowET() {
 
 // Right-align item prices cleanly across the full 48 columns
 function formatItemWithPrice(line) {
-  // Extract price if present anywhere in the string
+  // Extract FIRST price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
-  
+
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
+
     // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
       .replace(/\$?(\d+\.\d{2})/, "")
@@ -72,6 +74,12 @@ function formatSummaryLine(label, amount) {
     return `${label}${" ".repeat(spaceNeeded)}${amount}`;
   }
   return `${label} ${amount}`;
+}
+
+// Kitchen big-font wrapper (keeps readability)
+function kitchenBig(line) {
+  const safe = String(line ?? "").replace(/\r/g, "");
+  return `[bold: on][mag: h 2]${safe}[mag][bold: off]`;
 }
 
 // ======================================================
@@ -128,12 +136,23 @@ app.post("/print", async (req, res) => {
         let taxVal = "";
         let totalVal = "";
 
+        // IMPORTANT: Track boxed specials so we don't rewrite lines inside the box
+        let inBox = false;
+
         const lines = rawStr.split("\n");
         for (let line of lines) {
-          const trimmedLine = line.trim();
+          const trimmedLine = String(line).trim();
           if (!trimmedLine) continue;
 
+          // Toggle on special box delimiter and print it big as-is
+          if (trimmedLine === SPECIAL_BOX_LINE) {
+            inBox = !inBox;
+            itemsList.push(kitchenBig(SPECIAL_BOX_LINE));
+            continue;
+          }
+
           // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages
+          // NOTE: your assistant now sends only Customer Name/Phone + receipt, but keep your filters
           if (
             /Cash N Dash/i.test(trimmedLine) ||
             /Date:/i.test(trimmedLine) ||
@@ -149,47 +168,63 @@ app.post("/print", async (req, res) => {
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custName = m[1].replace(/[\*\s]+/g, " ").trim();
             }
-          } 
-          else if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
+            continue;
+          }
+
+          if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
             const m = trimmedLine.match(/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i);
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custPhone = m[1].replace(/[\*\s]+/g, " ").trim();
             }
+            continue;
           }
+
           // Parse Financial Totals
-          else if (/^Subtotal/i.test(trimmedLine)) {
+          if (/^Subtotal/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) subtotalVal = `$${match[1]}`;
-          } 
-          else if (/tax/i.test(trimmedLine)) {
+            continue;
+          }
+
+          if (/tax/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) taxVal = `$${match[1]}`;
-          } 
-          else if (/total/i.test(trimmedLine)) {
+            continue;
+          }
+
+          if (/^total/i.test(trimmedLine.toLowerCase())) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
+            continue;
           }
+
           // Parse Special Instructions / Notes
-          else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
+          if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
             specialNotesList.push(trimmedLine);
+            continue;
           }
+
           // Parse Food Items
-          else {
+          // CRITICAL CHANGE:
+          // - If inside the special box, print line verbatim in big font (preserves spacing & dual prices)
+          // - Otherwise, keep your right-align formatting for normal lines
+          if (inBox) {
+            itemsList.push(kitchenBig(trimmedLine));
+          } else {
             const formatted = formatItemWithPrice(trimmedLine);
-            itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
+            itemsList.push(kitchenBig(formatted));
           }
         }
 
         const customerInfoStr = `Customer Name: ${custName}\nPhone Number: ${custPhone}`;
 
-        const formattedItemsStr = itemsList.length > 0 
-          ? itemsList.join("\n") 
-          : "[bold: on]No Items Detected[bold: off]";
+        const formattedItemsStr =
+          itemsList.length > 0 ? itemsList.join("\n") : "[bold: on]No Items Detected[bold: off]";
 
-        // Build Special Notes Block (Enclosed between dynamic dotted lines)
+        // Build Special Notes Block
         let specialMarkup = "";
         if (specialNotesList.length > 0) {
-          specialMarkup = 
+          specialMarkup =
 `${DOTTED_LINE}
 [bold: on]SPECIAL INSTRUCTIONS:[bold: off]
 [bold: on]${specialNotesList.join("\n")}[bold: off]
@@ -211,8 +246,8 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // EXACT EDGE-TO-EDGE RECEIPT TEMPLATE
-        const formattedMarkup = 
+        // FULL RECEIPT TEMPLATE (your existing)
+        const formattedMarkup =
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 512 WILLOW ST | VINCENNES, IN 47591
