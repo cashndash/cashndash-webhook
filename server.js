@@ -37,12 +37,10 @@ function formatNowET() {
 
 // Right-align item prices cleanly across the full 48 columns
 function formatItemWithPrice(line) {
-  // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-    // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
       .replace(/\$?(\d+\.\d{2})/, "")
       .replace(/^[\*\s\-:]+/g, "")
@@ -52,7 +50,6 @@ function formatItemWithPrice(line) {
     const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalName = itemName;
 
-    // Truncate long item names so they don't wrap and push the price down
     if (itemName.length > maxNameLen) {
       finalName = itemName.substring(0, maxNameLen - 1) + ".";
     }
@@ -61,7 +58,6 @@ function formatItemWithPrice(line) {
     return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
   }
 
-  // Fallback if line has no price attached
   return line.replace(/^[\*\s\-]+/g, "").trim();
 }
 
@@ -72,6 +68,21 @@ function formatSummaryLine(label, amount) {
     return `${label}${" ".repeat(spaceNeeded)}${amount}`;
   }
   return `${label} ${amount}`;
+}
+
+// Format lines inside a square border box
+function formatSquareBox(title, notesArray) {
+  if (!notesArray || notesArray.length === 0) return "";
+
+  let boxStr = `${DOTTED_LINE}\n`;
+  boxStr += `| [bold: on]${title}[bold: off]\n`;
+  
+  for (const note of notesArray) {
+    boxStr += `| * ${note}\n`;
+  }
+  
+  boxStr += `${DOTTED_LINE}\n`;
+  return boxStr;
 }
 
 // ======================================================
@@ -169,9 +180,16 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
           }
-          // Parse Special Instructions / Notes
-          else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
-            specialNotesList.push(trimmedLine);
+          // PARSE SPECIAL INSTRUCTIONS / WORDS CONTAINING "SPECIAL"
+          else if (/special|notes?|instructions?|requests?|allergies/i.test(trimmedLine)) {
+            // Clean prefix labels (e.g. "Special Instruction:", "Special Note:")
+            const cleanedNote = trimmedLine
+              .replace(/^(?:Special\s*(?:Instructions?|Notes?|Requests?)?|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]\s*/i, "")
+              .trim();
+
+            if (cleanedNote) {
+              specialNotesList.push(cleanedNote);
+            }
           }
           // Parse Food Items
           else {
@@ -186,15 +204,8 @@ app.post("/print", async (req, res) => {
           ? itemsList.join("\n") 
           : "[bold: on]No Items Detected[bold: off]";
 
-        // Build Special Notes Block (Enclosed between dynamic dotted lines)
-        let specialMarkup = "";
-        if (specialNotesList.length > 0) {
-          specialMarkup = 
-`${DOTTED_LINE}
-[bold: on]SPECIAL INSTRUCTIONS:[bold: off]
-[bold: on]${specialNotesList.join("\n")}[bold: off]
-`;
-        }
+        // BUILD SQUARE-BOXED SPECIAL INSTRUCTIONS SECTION
+        const specialMarkup = formatSquareBox("SPECIAL INSTRUCTIONS:", specialNotesList);
 
         const now_et = args.now_et || formatNowET();
 
@@ -211,7 +222,7 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // EXACT EDGE-TO-EDGE RECEIPT TEMPLATE
+        // COMPACT RECEIPT TEMPLATE WITH SQUARE-BOXED SPECIAL INSTRUCTIONS
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
