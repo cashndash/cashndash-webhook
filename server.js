@@ -28,7 +28,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across standard 32 receipt columns
+// Right-align item prices cleanly across standard 32 receipt columns without leading asterisks
 function formatItemWithPrice(line) {
   const maxLen = 32;
 
@@ -37,27 +37,26 @@ function formatItemWithPrice(line) {
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
+    // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
       .replace(/\$?(\d+\.\d{2})/, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    const formattedName = `* ${itemName}`;
     const maxNameLen = maxLen - priceVal.length - 1;
-    let finalName = formattedName;
+    let finalName = itemName;
 
-    if (formattedName.length > maxNameLen) {
-      finalName = formattedName.substring(0, maxNameLen - 1) + ".";
+    if (itemName.length > maxNameLen) {
+      finalName = itemName.substring(0, maxNameLen - 1) + ".";
     }
 
     const spaceNeeded = maxLen - finalName.length - priceVal.length;
     return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
   }
 
-  // Fallback if line has no price
-  const cleanLine = line.replace(/^[\*\s\-]+/g, "").trim();
-  return `* ${cleanLine}`;
+  // Fallback if line has no price attached
+  return line.replace(/^[\*\s\-]+/g, "").trim();
 }
 
 // Right-align summary lines across 32 receipt columns
@@ -156,7 +155,6 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) subtotalVal = `$${match[1]}`;
           } 
-          // ROBUST SALES TAX PARSER (Catches "Tax:", "Sales Tax:", "SALES TAX (7%):", etc.)
           else if (/tax/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) taxVal = `$${match[1]}`;
@@ -176,11 +174,11 @@ app.post("/print", async (req, res) => {
 
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
-          : "[bold: on]* No Items Detected[bold: off]";
+          : "[bold: on]No Items Detected[bold: off]";
 
         const now_et = args.now_et || formatNowET();
 
-        // GUARANTEED SEQUENTIAL TOTALS: Subtotal -> Sales Tax -> Double Line -> TOTAL
+        // COMPACT FINANCIAL BLOCK
         let totalsMarkup = `--------------------------------\n`;
         if (subtotalVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
@@ -193,16 +191,12 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // RECEIPT MARKUP
+        // COMPACT RECEIPT TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
-
-512 WILLOW ST
-VINCENNES, IN 47591
-812-882-6102
-${now_et} ET
-
+512 WILLOW ST | VINCENNES, IN 47591
+812-882-6102 | ${now_et} ET
 [align: left]
 --------------------------------
 [bold: on]CUSTOMER DETAILS:[bold: off]
@@ -211,10 +205,8 @@ ${now_et} ET
 [align: center]
 [bold: on][mag: w 1; h 2]KITCHEN ORDER[mag][bold: off]
 --------------------------------
-
 [align: left]
 ${formattedItemsStr}
-
 [align: left]
 ${totalsMarkup}
 [align: center]
