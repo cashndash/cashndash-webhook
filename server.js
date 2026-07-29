@@ -28,7 +28,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across receipt columns
+// Right-align item prices cleanly across standard 32 receipt columns
 function formatItemWithPrice(line) {
   const maxLen = 32;
 
@@ -139,28 +139,33 @@ app.post("/print", async (req, res) => {
           }
 
           // Parse Customer Details
-          if (/^Customer Name:/i.test(trimmedLine) || /^Name:/i.test(trimmedLine)) {
-            const nameMatch = trimmedLine.replace(/^(?:Customer\s+)?Name:\s*/i, "").trim();
-            if (nameMatch) custName = nameMatch;
-          } else if (/^Phone Number:/i.test(trimmedLine) || /^Phone:/i.test(trimmedLine)) {
-            const phoneMatch = trimmedLine.replace(/^(?:Phone\s+Number|Phone):\s*/i, "").trim();
-            if (phoneMatch) custPhone = phoneMatch;
+          if (/^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
+            const m = trimmedLine.match(/^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i);
+            if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
+              custName = m[1].replace(/[\*\s]+/g, " ").trim();
+            }
+          } 
+          else if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
+            const m = trimmedLine.match(/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i);
+            if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
+              custPhone = m[1].replace(/[\*\s]+/g, " ").trim();
+            }
           }
-          // Parse Financial Totals
+          // Parse Financial Totals strictly
           else if (/^Subtotal:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             subtotalStr = val ? formatSummaryLine("Subtotal:", val) : trimmedLine;
-          } else if (/^Tax:/i.test(trimmedLine) || /^Sales Tax/i.test(trimmedLine)) {
+          } else if (/^(?:Sales\s+)?Tax/i.test(trimmedLine)) {
             const match = trimmedLine.match(/(?:Sales\s+)?Tax(?:\s*\(\d+%\))?:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             taxStr = val ? formatSummaryLine("Sales Tax:", val) : trimmedLine;
-          } else if (/^Total:/i.test(trimmedLine) || /^Grand Total:/i.test(trimmedLine)) {
+          } else if (/^(?:Grand\s+)?Total:/i.test(trimmedLine)) {
             const match = trimmedLine.match(/^(?:Grand\s+)?Total:\s*(\$?\d+(?:\.\d{2})?)/i);
             const val = match ? (match[1].startsWith("$") ? match[1] : `$${match[1]}`) : "";
             totalStr = val ? formatSummaryLine("TOTAL:", val) : trimmedLine;
           }
-          // Parse ONLY actual food items
+          // Parse Food Items
           else {
             itemsList.push(formatItemWithPrice(trimmedLine));
           }
@@ -174,7 +179,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // Build Totals Section: Dotted Line -> Subtotal -> Sales Tax -> Double Line -> TOTAL
+        // STRICT SEQUENTIAL TOTALS SECTION: Items -> Dotted line -> Subtotal -> Sales Tax -> Double Line -> TOTAL
         let totalsMarkup = "";
         if (subtotalStr || taxStr || totalStr) {
           totalsMarkup += `--------------------------------\n`;
@@ -184,7 +189,7 @@ app.post("/print", async (req, res) => {
           if (totalStr) totalsMarkup += `[bold: on][mag: w 1; h 2]${totalStr}[mag][bold: off]\n`;
         }
 
-        // EXACT SPECIFICATION MARKUP
+        // PERFECTLY ORDERED STAR MARKUP
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -204,7 +209,7 @@ ${now_et} ET
 --------------------------------
 
 [align: left]
-[bold: on][mag: w 1; h 2]${formattedItemsStr}[mag][bold: off]
+[bold: on]${formattedItemsStr}[bold: off]
 
 [align: left]
 ${totalsMarkup}
