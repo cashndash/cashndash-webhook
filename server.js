@@ -15,9 +15,9 @@ if (!STAR_API_KEY) {
 let printQueue = [];
 
 // ======================================================
-// PRINTER CONFIGURATION
+// PRINTER CONFIGURATION (32 COLUMNS FOR TALL KITCHEN FONT)
 // ======================================================
-const MAX_COLS = 48; // Standard 80mm thermal receipt width
+const MAX_COLS = 32; 
 const DOTTED_LINE = "-".repeat(MAX_COLS);
 const DOUBLE_LINE = "=".repeat(MAX_COLS);
 
@@ -35,16 +35,14 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across the full 48 columns
+// Right-align item prices cleanly across 32 receipt columns
 function formatItemWithPrice(line) {
-  // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-    // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
-      .replace(/\$?(\d+\.\d{2})/, "")
+      .replace(/\$?(\d+\.\d{2})/g, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
@@ -52,7 +50,6 @@ function formatItemWithPrice(line) {
     const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalName = itemName;
 
-    // Truncate long item names so they don't wrap and push the price down
     if (itemName.length > maxNameLen) {
       finalName = itemName.substring(0, maxNameLen - 1) + ".";
     }
@@ -61,11 +58,28 @@ function formatItemWithPrice(line) {
     return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
   }
 
-  // Fallback if line has no price attached
   return line.replace(/^[\*\s\-]+/g, "").trim();
 }
 
-// Right-align summary lines across the full 48 columns
+// Clean duplicate standalone prices inside asterisk special blocks (e.g. "$8.49 $8.49" -> "$8.49")
+function formatBoxedLine(line) {
+  const trimmed = line.trim();
+  
+  // If line is just duplicated prices like "$8.49 $8.49"
+  if (/^(\$?(\d+\.\d{2})\s*)+$/.test(trimmed)) {
+    const match = trimmed.match(/\$?(\d+\.\d{2})/);
+    return match ? `$${match[1]}` : trimmed;
+  }
+  
+  // If line has a price and item name
+  if (/\$?(\d+\.\d{2})/.test(trimmed)) {
+    return formatItemWithPrice(trimmed);
+  }
+  
+  return trimmed;
+}
+
+// Right-align summary lines across 32 receipt columns
 function formatSummaryLine(label, amount) {
   const spaceNeeded = MAX_COLS - label.length - amount.length;
   if (spaceNeeded > 0) {
@@ -128,12 +142,21 @@ app.post("/print", async (req, res) => {
         let taxVal = "";
         let totalVal = "";
 
+        let inBox = false;
+
         const lines = rawStr.split("\n");
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages
+          // Catch Asterisk Lines from Vapi (****************************)
+          if (/^\*{10,}$/.test(trimmedLine)) {
+            inBox = !inBox;
+            itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
+            continue;
+          }
+
+          // Filter out header/footer noise, dates, timestamps, or thank-you messages
           if (
             /Cash N Dash/i.test(trimmedLine) ||
             /Date:/i.test(trimmedLine) ||
@@ -169,14 +192,19 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
           }
-          // Parse Special Instructions / Notes
+          // Parse Separate Special Instructions / Notes
           else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
             specialNotesList.push(trimmedLine);
           }
-          // Parse Food Items
+          // Parse Food Items & Asterisk Boxed Lines
           else {
-            const formatted = formatItemWithPrice(trimmedLine);
-            itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
+            if (inBox) {
+              const cleanedBoxLine = formatBoxedLine(trimmedLine);
+              itemsList.push(`[bold: on][mag: h 2]${cleanedBoxLine}[mag][bold: off]`);
+            } else {
+              const formatted = formatItemWithPrice(trimmedLine);
+              itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
+            }
           }
         }
 
@@ -184,54 +212,54 @@ app.post("/print", async (req, res) => {
 
         const formattedItemsStr = itemsList.length > 0 
           ? itemsList.join("\n") 
-          : "[bold: on]No Items Detected[bold: off]";
+          : "[bold: on][mag: h 2]No Items Detected[mag][bold: off]";
 
-        // Build Special Notes Block (Enclosed between dynamic dotted lines)
+        // Build Special Notes Block if explicitly passed separately
         let specialMarkup = "";
         if (specialNotesList.length > 0) {
           specialMarkup = 
-`${DOTTED_LINE}
-[bold: on]SPECIAL INSTRUCTIONS:[bold: off]
-[bold: on]${specialNotesList.join("\n")}[bold: off]
+`[bold: on][mag: h 2]${DOTTED_LINE}[mag][bold: off]
+[bold: on][mag: h 2]SPECIAL INSTRUCTIONS:[mag][bold: off]
+[bold: on][mag: h 2]${specialNotesList.join("\n")}[mag][bold: off]
 `;
         }
 
         const now_et = args.now_et || formatNowET();
 
-        // FULL-WIDTH FINANCIAL BLOCK
-        let totalsMarkup = `${DOTTED_LINE}\n`;
+        // FINANCIAL BLOCK
+        let totalsMarkup = `--------------------------------\n`;
         if (subtotalVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
         }
         if (taxVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
         }
-        totalsMarkup += `${DOUBLE_LINE}\n`;
+        totalsMarkup += `================================\n`;
         if (totalVal) {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // EXACT EDGE-TO-EDGE RECEIPT TEMPLATE
+        // EXACT MATCH RECEIPT MARKUP
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 512 WILLOW ST | VINCENNES, IN 47591
 812-882-6102 | ${now_et} ET
 [align: left]
-${DOTTED_LINE}
+--------------------------------
 [bold: on]CUSTOMER DETAILS:[bold: off]
 [bold: on]${customerInfoStr}[bold: off]
-${DOTTED_LINE}
+--------------------------------
 [align: center]
 [bold: on][mag: w 1; h 2]KITCHEN ORDER[mag][bold: off]
-${DOTTED_LINE}
+--------------------------------
 [align: left]
 ${formattedItemsStr}
 
 ${specialMarkup}[align: left]
 ${totalsMarkup}
 [align: center]
-${DOTTED_LINE}
+--------------------------------
 [bold: on]THANK YOU![bold: off]
 
 [buzzer]
