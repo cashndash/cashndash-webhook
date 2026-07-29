@@ -17,8 +17,7 @@ let printQueue = [];
 // ======================================================
 // PRINTER CONFIGURATION
 // ======================================================
-// 32 Columns is the EXACT limit for Double-Height ([mag: h 2]) Star Thermal Markup
-const MAX_COLS = 32; 
+const MAX_COLS = 48; // Standard 80mm thermal receipt width
 const DOTTED_LINE = "-".repeat(MAX_COLS);
 const DOUBLE_LINE = "=".repeat(MAX_COLS);
 
@@ -36,17 +35,16 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across 32 receipt columns
+// Right-align item prices cleanly across the full 48 columns
 function formatItemWithPrice(line) {
   // Extract price if present anywhere in the string
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-    
-    // Remove all price matches, asterisks, and extra punctuation from the description
+    // Clean item name and remove all asterisks (*), leading/trailing dashes, or colons
     let itemName = line
-      .replace(/\$?(\d+\.\d{2})/g, "")
+      .replace(/\$?(\d+\.\d{2})/, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
@@ -54,6 +52,7 @@ function formatItemWithPrice(line) {
     const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalName = itemName;
 
+    // Truncate long item names so they don't wrap and push the price down
     if (itemName.length > maxNameLen) {
       finalName = itemName.substring(0, maxNameLen - 1) + ".";
     }
@@ -66,25 +65,7 @@ function formatItemWithPrice(line) {
   return line.replace(/^[\*\s\-]+/g, "").trim();
 }
 
-// Clean duplicate prices inside boxed specials (e.g. "$8.49 $8.49 DAILY SPECIAL" -> "DAILY SPECIAL $8.49")
-function formatBoxedLine(line) {
-  const prices = line.match(/\$?(\d+\.\d{2})/g);
-  if (prices && prices.length > 1) {
-    const singlePrice = prices[0].startsWith("$") ? prices[0] : `$${prices[0]}`;
-    let cleanText = line
-      .replace(/\$?(\d+\.\d{2})/g, "")
-      .replace(/^[\*\s\-:]+/g, "")
-      .replace(/[\*\s\-:]+$/g, "")
-      .trim();
-
-    return formatItemWithPrice(`${cleanText} ${singlePrice}`);
-  } else if (prices && prices.length === 1) {
-    return formatItemWithPrice(line);
-  }
-  return line.trim();
-}
-
-// Right-align summary lines across 32 receipt columns
+// Right-align summary lines across the full 48 columns
 function formatSummaryLine(label, amount) {
   const spaceNeeded = MAX_COLS - label.length - amount.length;
   if (spaceNeeded > 0) {
@@ -147,19 +128,10 @@ app.post("/print", async (req, res) => {
         let taxVal = "";
         let totalVal = "";
 
-        let inBox = false;
-
         const lines = rawStr.split("\n");
         for (let line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
-
-          // Toggle inBox status for Vapi special boxed blocks
-          if (/^\*{10,}$/.test(trimmedLine)) {
-            inBox = !inBox;
-            itemsList.push(`[bold: on][mag: h 2]${DOTTED_LINE}[mag][bold: off]`);
-            continue;
-          }
 
           // Filter out Vapi header/footer noise, dates, timestamps, or thank-you messages
           if (
@@ -197,19 +169,14 @@ app.post("/print", async (req, res) => {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
             if (match) totalVal = `$${match[1]}`;
           }
-          // Parse Separate Special Instructions / Notes
+          // Parse Special Instructions / Notes
           else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
             specialNotesList.push(trimmedLine);
           }
-          // Parse Food Items & Boxed Content
+          // Parse Food Items
           else {
-            if (inBox) {
-              const formattedBoxLine = formatBoxedLine(trimmedLine);
-              itemsList.push(`[bold: on][mag: h 2]${formattedBoxLine}[mag][bold: off]`);
-            } else {
-              const formatted = formatItemWithPrice(trimmedLine);
-              itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
-            }
+            const formatted = formatItemWithPrice(trimmedLine);
+            itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
           }
         }
 
@@ -219,7 +186,7 @@ app.post("/print", async (req, res) => {
           ? itemsList.join("\n") 
           : "[bold: on]No Items Detected[bold: off]";
 
-        // Build Special Notes Block if explicitly passed separately
+        // Build Special Notes Block (Enclosed between dynamic dotted lines)
         let specialMarkup = "";
         if (specialNotesList.length > 0) {
           specialMarkup = 
@@ -231,7 +198,7 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // 32-COLUMN FINANCIAL BLOCK
+        // FULL-WIDTH FINANCIAL BLOCK
         let totalsMarkup = `${DOTTED_LINE}\n`;
         if (subtotalVal) {
           totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
@@ -244,7 +211,7 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // PERFECT RECEIPT TEMPLATE
+        // EXACT EDGE-TO-EDGE RECEIPT TEMPLATE
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
