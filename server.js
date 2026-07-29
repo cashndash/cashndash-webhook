@@ -151,21 +151,23 @@ app.post("/print", async (req, res) => {
               custPhone = m[1].replace(/[\*\s]+/g, " ").trim();
             }
           }
-          // Parse Financial Totals strictly
-          else if (/^Subtotal:/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/^Subtotal:\s*(\$?\d+(?:\.\d{2})?)/i);
-            if (match) subtotalVal = match[1].startsWith("$") ? match[1] : `$${match[1]}`;
-          } else if (/^(?:Sales\s+)?Tax/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/(?:Sales\s+)?Tax(?:\s*\(\d+%\))?:\s*(\$?\d+(?:\.\d{2})?)/i);
-            if (match) taxVal = match[1].startsWith("$") ? match[1] : `$${match[1]}`;
-          } else if (/^(?:Grand\s+)?Total:/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/^(?:Grand\s+)?Total:\s*(\$?\d+(?:\.\d{2})?)/i);
-            if (match) totalVal = match[1].startsWith("$") ? match[1] : `$${match[1]}`;
+          // Parse Financial Totals
+          else if (/^Subtotal/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
+            if (match) subtotalVal = `$${match[1]}`;
+          } 
+          // ROBUST SALES TAX PARSER (Catches "Tax:", "Sales Tax:", "SALES TAX (7%):", etc.)
+          else if (/tax/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
+            if (match) taxVal = `$${match[1]}`;
+          } 
+          else if (/total/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
+            if (match) totalVal = `$${match[1]}`;
           }
           // Parse Food Items
           else {
             const formatted = formatItemWithPrice(trimmedLine);
-            // Apply double-height and bold per item line to prevent layout breaks
             itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
           }
         }
@@ -178,20 +180,17 @@ app.post("/print", async (req, res) => {
 
         const now_et = args.now_et || formatNowET();
 
-        // STRICT FINANCIAL BLOCK: Dotted Line -> Subtotal -> Sales Tax -> Double Line -> TOTAL
-        let totalsMarkup = "";
-        if (subtotalVal || taxVal || totalVal) {
-          totalsMarkup += `--------------------------------\n`;
-          if (subtotalVal) {
-            totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
-          }
-          if (taxVal) {
-            totalsMarkup += `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
-          }
-          totalsMarkup += `================================\n`;
-          if (totalVal) {
-            totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
-          }
+        // GUARANTEED SEQUENTIAL TOTALS: Subtotal -> Sales Tax -> Double Line -> TOTAL
+        let totalsMarkup = `--------------------------------\n`;
+        if (subtotalVal) {
+          totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
+        }
+        if (taxVal) {
+          totalsMarkup += `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
+        }
+        totalsMarkup += `================================\n`;
+        if (totalVal) {
+          totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
         // RECEIPT MARKUP
