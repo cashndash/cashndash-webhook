@@ -35,27 +35,63 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices cleanly across 32 receipt columns
+// Right-align item prices and wrap long descriptions/modifiers onto new lines cleanly
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
-    let itemName = line
+    let fullText = line
       .replace(/\$?(\d+\.\d{2})/g, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    const maxNameLen = MAX_COLS - priceVal.length - 1;
-    let finalName = itemName;
+    // Check if there are modifiers attached (e.g. "Item Name -Modifiers" or "Item Name +Modifiers")
+    const modifierSplit = fullText.split(/\s+([+\-].*)/);
+    let mainName = fullText;
+    let modifierText = "";
 
-    if (itemName.length > maxNameLen) {
-      finalName = itemName.substring(0, maxNameLen - 1) + ".";
+    if (modifierSplit.length > 1) {
+      mainName = modifierSplit[0].trim();
+      modifierText = modifierSplit.slice(1).join("").trim();
     }
 
-    const spaceNeeded = MAX_COLS - finalName.length - priceVal.length;
-    return `${finalName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
+    // Format Line 1: Main Item + Price Right-Aligned
+    const maxNameLen = MAX_COLS - priceVal.length - 1;
+    let finalMainName = mainName;
+    if (mainName.length > maxNameLen) {
+      finalMainName = mainName.substring(0, maxNameLen - 1) + ".";
+    }
+
+    const spaceNeeded = MAX_COLS - finalMainName.length - priceVal.length;
+    let resultStr = `${finalMainName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
+
+    // Format Line 2+: If there are modifiers (e.g. "-L,-O+Mayo,+k"), print underneath indented
+    if (modifierText) {
+      let modLine = `  ${modifierText}`;
+      if (modLine.length > MAX_COLS) {
+        // Chunk modifiers if extremely long
+        let currentChunk = "  ";
+        const words = modifierText.split(",");
+        for (let w of words) {
+          const piece = w.trim() + ",";
+          if ((currentChunk + piece).length > MAX_COLS) {
+            resultStr += `\n${currentChunk.replace(/,$/, "")}`;
+            currentChunk = `  ${piece}`;
+          } else {
+            currentChunk += piece;
+          }
+        }
+        if (currentChunk.trim()) {
+          resultStr += `\n${currentChunk.replace(/,$/, "")}`;
+        }
+      } else {
+        resultStr += `\n${modLine}`;
+      }
+    }
+
+    return resultStr;
   }
 
   return line.replace(/^[\*\s\-]+/g, "").trim();
@@ -239,7 +275,7 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // EXACT MATCH RECEIPT MARKUP
+        // EXACT MATCH RECEIPT MARKUP WITH REPEATED BUZZER
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
@@ -262,7 +298,11 @@ ${totalsMarkup}
 --------------------------------
 [bold: on]THANK YOU![bold: off]
 
-[buzzer: cycle 8; on 500; off 200]
+[buzzer]
+[buzzer]
+[buzzer]
+[buzzer]
+[buzzer]
 [cut]`;
 
         const controller = new AbortController();
