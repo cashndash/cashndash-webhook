@@ -262,7 +262,7 @@ ${totalsMarkup}
 --------------------------------
 [bold: on]THANK YOU![bold: off]
 
-[buzzer]
+[buzzer: cycle 8; on 500; off 200]
 [cut]`;
 
         const controller = new AbortController();
