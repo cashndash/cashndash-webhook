@@ -35,7 +35,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Right-align item prices and wrap long descriptions/modifiers onto new lines cleanly
+// Format regular food items with right-aligned prices & multi-line modifiers
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
   
@@ -47,7 +47,7 @@ function formatItemWithPrice(line) {
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    // Check if there are modifiers attached (e.g. "Item Name -Modifiers" or "Item Name +Modifiers")
+    // Split on modifiers starting with - or + (e.g. "Breaded Tenderloin (pln) -P+Mayo")
     const modifierSplit = fullText.split(/\s+([+\-].*)/);
     let mainName = fullText;
     let modifierText = "";
@@ -57,7 +57,7 @@ function formatItemWithPrice(line) {
       modifierText = modifierSplit.slice(1).join("").trim();
     }
 
-    // Format Line 1: Main Item + Price Right-Aligned
+    // Line 1: Main Item + Price Right-Aligned
     const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalMainName = mainName;
     if (mainName.length > maxNameLen) {
@@ -67,52 +67,16 @@ function formatItemWithPrice(line) {
     const spaceNeeded = MAX_COLS - finalMainName.length - priceVal.length;
     let resultStr = `${finalMainName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
 
-    // Format Line 2+: If there are modifiers (e.g. "-L,-O+Mayo,+k"), print underneath indented
+    // Line 2: Modifiers printed underneath
     if (modifierText) {
-      let modLine = `  ${modifierText}`;
-      if (modLine.length > MAX_COLS) {
-        // Chunk modifiers if extremely long
-        let currentChunk = "  ";
-        const words = modifierText.split(",");
-        for (let w of words) {
-          const piece = w.trim() + ",";
-          if ((currentChunk + piece).length > MAX_COLS) {
-            resultStr += `\n${currentChunk.replace(/,$/, "")}`;
-            currentChunk = `  ${piece}`;
-          } else {
-            currentChunk += piece;
-          }
-        }
-        if (currentChunk.trim()) {
-          resultStr += `\n${currentChunk.replace(/,$/, "")}`;
-        }
-      } else {
-        resultStr += `\n${modLine}`;
-      }
+      resultStr += `\n  ${modifierText}`;
     }
 
     return resultStr;
   }
 
+  // Fallback for lines without a price
   return line.replace(/^[\*\s\-]+/g, "").trim();
-}
-
-// Clean duplicate standalone prices inside asterisk special blocks (e.g. "$8.49 $8.49" -> "$8.49")
-function formatBoxedLine(line) {
-  const trimmed = line.trim();
-  
-  // If line is just duplicated prices like "$8.49 $8.49"
-  if (/^(\$?(\d+\.\d{2})\s*)+$/.test(trimmed)) {
-    const match = trimmed.match(/\$?(\d+\.\d{2})/);
-    return match ? `$${match[1]}` : trimmed;
-  }
-  
-  // If line has a price and item name
-  if (/\$?(\d+\.\d{2})/.test(trimmed)) {
-    return formatItemWithPrice(trimmed);
-  }
-  
-  return trimmed;
 }
 
 // Right-align summary lines across 32 receipt columns
@@ -185,9 +149,15 @@ app.post("/print", async (req, res) => {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
 
-          // Catch Asterisk Lines from Vapi (****************************)
+          // Toggle Asterisk Box status (****************************)
           if (/^\*{10,}$/.test(trimmedLine)) {
             inBox = !inBox;
+            itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
+            continue;
+          }
+
+          // IF INSIDE ASTERISK BOX: Print line verbatim in Large Bold Font
+          if (inBox) {
             itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
             continue;
           }
@@ -232,15 +202,10 @@ app.post("/print", async (req, res) => {
           else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
             specialNotesList.push(trimmedLine);
           }
-          // Parse Food Items & Asterisk Boxed Lines
+          // Parse Regular Food Items
           else {
-            if (inBox) {
-              const cleanedBoxLine = formatBoxedLine(trimmedLine);
-              itemsList.push(`[bold: on][mag: h 2]${cleanedBoxLine}[mag][bold: off]`);
-            } else {
-              const formatted = formatItemWithPrice(trimmedLine);
-              itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
-            }
+            const formatted = formatItemWithPrice(trimmedLine);
+            itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
           }
         }
 
@@ -275,7 +240,7 @@ app.post("/print", async (req, res) => {
           totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
         }
 
-        // EXACT MATCH RECEIPT MARKUP WITH REPEATED BUZZER
+        // RECEIPT TEMPLATE WITH BUZZER
         const formattedMarkup = 
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
