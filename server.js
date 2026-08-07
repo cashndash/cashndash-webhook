@@ -35,6 +35,14 @@ function formatNowET() {
   }).format(now);
 }
 
+// Helper function to format Eastern Time Day of Week
+function getDayET() {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "long"
+  }).format(new Date());
+}
+
 // Format regular food items with right-aligned prices & multi-line modifiers
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
@@ -115,7 +123,14 @@ app.post("/print", async (req, res) => {
 
     try {
       if (toolName === "get_now_et") {
-        results.push({ toolCallId, result: { now_et: formatNowET() } });
+        const nowET = formatNowET();
+        const dayET = getDayET();
+
+        results.push({
+          toolCallId,
+          result: `Current Eastern Time: ${nowET}. Today is ${dayET}.`
+        });
+
         continue;
       }
 
