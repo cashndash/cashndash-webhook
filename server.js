@@ -56,6 +56,15 @@ const MENU_PRICES = {
   "extra bacon": 2.00,
   "extra bacon(2 pieces)": 2.00,
 
+  // Drinks & Wedges (Combo components)
+  "32oz fountain drink": 1.87,
+  "32 oz fountain drink": 1.87,
+  "fountain drink": 1.87,
+  "potato wedge": 0.20,
+  "potato wedges": 0.20,
+  "5 potato wedges": 1.00,
+  "8 potato wedges": 1.60,
+
   // Sides
   "fries": 2.99,
   "crinkle fries": 2.99,
@@ -81,8 +90,6 @@ const MENU_PRICES = {
   "leg": 2.39,
   "wing": 2.29,
   "chicken tender": 2.49,
-  "potato wedge": 0.20,
-  "potato wedges": 0.20,
   "dipping cup": 0.75,
   "dipping cups": 0.75,
   "chicken liver box": 4.99,
@@ -105,6 +112,8 @@ const MENU_PRICES = {
   // Daily Specials
   "daily special": 8.49,
   "daily specials": 8.49,
+  "special": 8.49,
+  "specials": 8.49,
   "monday special": 8.49,
   "tuesday special": 8.49,
   "wednesday special": 8.49,
@@ -156,17 +165,22 @@ function getDayET() {
   }).format(new Date());
 }
 
-// Fallback lookup: Checks MENU_PRICES table if Vapi omitted the price
 // Fallback lookup: Checks MENU_PRICES table or keyword matching if Vapi omitted the price
 function addKnownItemPrice(line) {
-  const cleanLine = line.trim().replace(/\s+/g, " ");
+  let cleanLine = line.trim().replace(/\s+/g, " ");
 
-  // Only consider it pre-priced if it has an explicit DOLLAR SIGN (e.g. $8.49)
-  if (/\$\d+\.\d{2}/.test(cleanLine)) {
+  // Normalize lines where price was attached at the front e.g. "$8.49 DAILY SPECIAL" -> "DAILY SPECIAL $8.49"
+  const leadingPriceMatch = cleanLine.match(/^\$(\d+\.\d{2})\s+(.+)/i);
+  if (leadingPriceMatch) {
+    return `${leadingPriceMatch[2]} $${leadingPriceMatch[1]}`;
+  }
+
+  // If price is already present at the end, return directly
+  if (/\$\d+\.\d{2}$/.test(cleanLine)) {
     return cleanLine;
   }
 
-  // Remove unformatted leading numbers like "8.49 " or "$8.49 " if Vapi omitted "$"
+  // Strip leading dollarless numbers like "8.49 " or "$8.49 " if Vapi omitted "$"
   const normalizedLine = cleanLine.replace(/^\$?(\d+\.\d{2})\s+/i, "");
 
   // Extract quantity (if present) and clean item name
@@ -183,7 +197,11 @@ function addKnownItemPrice(line) {
   }
 
   // 2. Keyword matching for any Daily Special or Basket variation
-  if (rawItemName.includes("special") || rawItemName.includes("basket")) {
+  if (
+    rawItemName.includes("special") ||
+    rawItemName.includes("basket") ||
+    rawItemName === "tenderloin"
+  ) {
     let specialPrice = 8.49; // Default daily special price
 
     if (rawItemName.includes("liver")) {
@@ -198,6 +216,7 @@ function addKnownItemPrice(line) {
 
   return cleanLine;
 }
+
 // Format regular food items with right-aligned prices
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
@@ -350,15 +369,6 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Print special-box content verbatim.
-          if (inBox) {
-            itemsList.push(
-              `[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`
-            );
-
-            continue;
-          }
-
           // Ignore source receipt headers and footer noise.
           if (
             /Cash N Dash/i.test(trimmedLine) ||
@@ -427,7 +437,7 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Regular food items and modifier-only lines
+          // Process item line with price fallbacks (works inside or outside special boxes)
           const pricedLine = addKnownItemPrice(trimmedLine);
 
           // Sum item price to server-calculated totals when present
