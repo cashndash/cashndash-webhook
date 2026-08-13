@@ -47,28 +47,40 @@ function getDayET() {
   }).format(new Date());
 }
 
-// Deterministic fallback for unpriced Breaded Tenderloin lines from Vapi
+// Deterministic fallback for unpriced Tenderloin lines from Vapi
 function addKnownItemPrice(line) {
   const cleanLine = line.trim().replace(/\s+/g, " ");
 
-  // Breaded Tenderloin: loaded, plain, or no label.
-  const tenderloinMatch = cleanLine.match(
-    /^(?:QTY\s+(\d+)\s+)?B\.T\.(?:\s+\((?:ld|pln)\))?$/i
-  );
-
-  if (!tenderloinMatch) {
-    return cleanLine;
-  }
-
-  // If line already contains a price, don't append another one
+  // Do not add a second price if Vapi already supplied one.
   if (/\$?(\d+\.\d{2})/.test(cleanLine)) {
     return cleanLine;
   }
 
-  const quantity = Number(tenderloinMatch[1] || 1);
-  const price = (quantity * 6.79).toFixed(2);
+  // Breaded Tenderloin: B.T., B.T. (ld), B.T. (pln), including QTY lines.
+  const breadedTenderloinMatch = cleanLine.match(
+    /^(?:QTY\s+(\d+)\s+)?B\.T\.(?:\s+\((?:ld|pln)\))?$/i
+  );
 
-  return `${cleanLine} $${price}`;
+  if (breadedTenderloinMatch) {
+    const quantity = Number(breadedTenderloinMatch[1] || 1);
+    const price = (quantity * 6.79).toFixed(2);
+
+    return `${cleanLine} $${price}`;
+  }
+
+  // Grilled Tenderloin: G.T., including QTY lines.
+  const grilledTenderloinMatch = cleanLine.match(
+    /^(?:QTY\s+(\d+)\s+)?G\.T\.$/i
+  );
+
+  if (grilledTenderloinMatch) {
+    const quantity = Number(grilledTenderloinMatch[1] || 1);
+    const price = (quantity * 6.79).toFixed(2);
+
+    return `${cleanLine} $${price}`;
+  }
+
+  return cleanLine;
 }
 
 // Format regular food items with right-aligned prices
@@ -192,9 +204,15 @@ app.post("/print", async (req, res) => {
         let custPhone = "N/A";
         let itemsList = [];
         let specialNotesList = [];
+        
         let subtotalVal = "";
         let taxVal = "";
         let totalVal = "";
+
+        // Render calculates totals from the item lines.
+        // Do not trust totals provided by Vapi.
+        let calculatedSubtotal = 0;
+        let calculatedTaxableSubtotal = 0;
 
         let inBox = false;
 
@@ -271,34 +289,8 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Financial totals
-          if (/^Subtotal/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-
-            if (match) {
-              subtotalVal = `$${match[1]}`;
-            }
-
-            continue;
-          }
-
-          if (/tax/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-
-            if (match) {
-              taxVal = `$${match[1]}`;
-            }
-
-            continue;
-          }
-
-          if (/total/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-
-            if (match) {
-              totalVal = `$${match[1]}`;
-            }
-
+          // Ignore Vapi's financial totals (we calculate them directly now)
+          if (/^Subtotal/i.test(trimmedLine) || /tax/i.test(trimmedLine) || /total/i.test(trimmedLine)) {
             continue;
           }
 
@@ -317,12 +309,26 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Regular food items and modifier-only lines such as -L,-O.
-          // Applies addKnownItemPrice to supply missing $6.79 pricing on B.T. lines,
-          // then formats with right-aligned pricing across 32 columns.
-          const formatted = formatItemWithPrice(
-            addKnownItemPrice(trimmedLine)
-          );
+          // Regular food items and modifier-only lines
+          const pricedLine = addKnownItemPrice(trimmedLine);
+          
+          // Add an item price to Render-calculated totals when present.
+          const itemPriceMatch = pricedLine.match(/\$(\d+\.\d{2})/);
+          if (itemPriceMatch) {
+            const itemAmount = Number(itemPriceMatch[1]);
+
+            calculatedSubtotal += itemAmount;
+
+            // Extra Buns are tax-exempt. Other ordinary items are taxable.
+            if (
+              !/^Extra Bun$/i.test(pricedLine) &&
+              !/^QTY\s+\d+\s+Extra Bun$/i.test(pricedLine)
+            ) {
+              calculatedTaxableSubtotal += itemAmount;
+            }
+          }
+          
+          const formatted = formatItemWithPrice(pricedLine);
 
           itemsList.push(
             `[bold: on][mag: h 2]${formatted}[mag][bold: off]`
@@ -350,26 +356,30 @@ app.post("/print", async (req, res) => {
 
         const nowET = args.now_et || formatNowET();
 
+        // Calculate totals from the receipt item prices.
+        const calculatedTax =
+          Math.round(calculatedTaxableSubtotal * 0.07 * 100) / 100;
+        const calculatedTotal =
+          calculatedSubtotal + calculatedTax;
+
+        subtotalVal = `$${calculatedSubtotal.toFixed(2)}`;
+        taxVal = `$${calculatedTax.toFixed(2)}`;
+        totalVal = `$${calculatedTotal.toFixed(2)}`;
+
         let totalsMarkup = "--------------------------------\n";
 
-        if (subtotalVal) {
-          totalsMarkup +=
-            `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
-        }
+        totalsMarkup +=
+          `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
 
-        if (taxVal) {
-          totalsMarkup +=
-            `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
-        }
+        totalsMarkup +=
+          `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
 
         totalsMarkup += "================================\n";
 
-        if (totalVal) {
-          totalsMarkup +=
-            `[bold: on][mag: w 1; h 2]` +
-            `${formatSummaryLine("TOTAL:", totalVal)}` +
-            `[mag][bold: off]\n`;
-        }
+        totalsMarkup +=
+          `[bold: on][mag: w 1; h 2]` +
+          `${formatSummaryLine("TOTAL:", totalVal)}` +
+          `[mag][bold: off]\n`;
 
         const formattedMarkup =
 `[align: center]
