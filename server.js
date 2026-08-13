@@ -56,7 +56,7 @@ const MENU_PRICES = {
   "extra bacon": 2.00,
   "extra bacon(2 pieces)": 2.00,
 
-  // Drinks & Wedges (Combo components)
+  // Drinks & Wedges
   "32oz fountain drink": 1.87,
   "32 oz fountain drink": 1.87,
   "fountain drink": 1.87,
@@ -199,8 +199,7 @@ function addKnownItemPrice(line) {
   // 2. Keyword matching for any Daily Special or Basket variation
   if (
     rawItemName.includes("special") ||
-    rawItemName.includes("basket") ||
-    rawItemName === "tenderloin"
+    rawItemName.includes("basket")
   ) {
     let specialPrice = 8.49; // Default daily special price
 
@@ -285,9 +284,6 @@ app.post("/print", async (req, res) => {
     }
 
     try {
-      // --------------------------------------------------
-      // GET EASTERN TIME
-      // --------------------------------------------------
       if (toolName === "get_now_et") {
         const nowET = formatNowET();
         const dayET = getDayET();
@@ -300,9 +296,6 @@ app.post("/print", async (req, res) => {
         continue;
       }
 
-      // --------------------------------------------------
-      // END CALL
-      // --------------------------------------------------
       if (toolName === "end_call_now") {
         results.push({
           toolCallId,
@@ -312,9 +305,6 @@ app.post("/print", async (req, res) => {
         continue;
       }
 
-      // --------------------------------------------------
-      // PRINT STAR RECEIPT
-      // --------------------------------------------------
       if (toolName === "print_star_receipt") {
         const rawMarkup =
           args.markup ??
@@ -343,11 +333,11 @@ app.post("/print", async (req, res) => {
         let taxVal = "";
         let totalVal = "";
 
-        // Server calculates financial totals directly from item prices
         let calculatedSubtotal = 0;
         let calculatedTaxableSubtotal = 0;
 
         let inBox = false;
+        let comboHeaderPriced = false;
 
         const lines = rawStr.split("\n");
 
@@ -358,9 +348,12 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Toggle special-item box status.
+          // Toggle special-item box status (Combo box)
           if (/^\*{10,}$/.test(trimmedLine)) {
             inBox = !inBox;
+            if (!inBox) {
+              comboHeaderPriced = false; // Reset combo box state when closing box
+            }
 
             itemsList.push(
               `[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`
@@ -413,7 +406,7 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Ignore Vapi's provided financial totals (we compute them directly)
+          // Ignore Vapi's provided financial totals
           if (
             /^Subtotal/i.test(trimmedLine) ||
             /tax/i.test(trimmedLine) ||
@@ -437,8 +430,21 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Process item line with price fallbacks (works inside or outside special boxes)
-          const pricedLine = addKnownItemPrice(trimmedLine);
+          // Process item line with price fallbacks
+          let pricedLine = addKnownItemPrice(trimmedLine);
+
+          // If inside a combo box and the combo header (e.g. DAILY SPECIAL $8.49) was already charged,
+          // strip individual prices from component items (burger, wedges, drink) so they are NOT double charged!
+          if (inBox) {
+            const isComboHeader = /special|basket/i.test(pricedLine);
+
+            if (isComboHeader) {
+              comboHeaderPriced = true;
+            } else if (comboHeaderPriced) {
+              // Strip price from combo component lines (e.g. "BACON CHEESEBURGER $6.99" -> "BACON CHEESEBURGER")
+              pricedLine = pricedLine.replace(/\s+\$\d+\.\d{2}$/i, "").trim();
+            }
+          }
 
           // Sum item price to server-calculated totals when present
           const itemPriceMatch = pricedLine.match(/\$(\d+\.\d{2})/);
@@ -447,7 +453,6 @@ app.post("/print", async (req, res) => {
 
             calculatedSubtotal += itemAmount;
 
-            // Extra Buns are tax-exempt. Other items are taxable.
             if (
               !/^Extra Bun$/i.test(pricedLine) &&
               !/^QTY\s+\d+\s+Extra Bun$/i.test(pricedLine)
@@ -538,7 +543,6 @@ ${totalsMarkup}
 [buzzer]
 [cut]`;
 
-        // Check that Render environment variables are available.
         if (!STAR_ENDPOINT || !STAR_API_KEY) {
           console.error("Missing Star configuration:", {
             hasStarEndpoint: Boolean(STAR_ENDPOINT),
