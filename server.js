@@ -24,6 +24,112 @@ let printQueue = [];
 const MAX_COLS = 32;
 const DOTTED_LINE = "-".repeat(MAX_COLS);
 
+// ======================================================
+// CASH-N-DASH MASTER MENU PRICE LOOKUP TABLE
+// ======================================================
+const MENU_PRICES = {
+  // Sandwiches & Abbreviations
+  "grilled tenderloin": 6.79,
+  "g.t.": 6.79,
+  "breaded tenderloin": 6.79,
+  "b.t.": 6.79,
+  "grilled chicken": 5.99,
+  "codfish": 5.89,
+  "dixie cod fish sandwich": 5.89,
+  "chicken patty": 5.99,
+  "chicken club": 6.99,
+  "blt": 5.49,
+  "grilled cheese sandwich": 3.99,
+  "grilled cheese": 3.99,
+
+  // Burgers
+  "hamburger": 5.29,
+  "cheeseburger": 5.99,
+  "double hamburger": 6.99,
+  "double cheeseburger": 7.79,
+  "bacon cheeseburger": 6.99,
+  "bacon double cheeseburger": 7.99,
+
+  // Add-ons & Extras
+  "extra cheese": 0.50,
+  "cheese": 0.50,
+  "extra bacon": 2.00,
+  "extra bacon(2 pieces)": 2.00,
+
+  // Sides
+  "fries": 2.99,
+  "crinkle fries": 2.99,
+  "onion rings": 3.79,
+  "mushrooms": 3.79,
+  "cauliflower": 3.79,
+  "cheese bite": 4.49,
+  "cheese bites": 4.49,
+  "cheese stick": 1.29,
+  "cheese sticks": 6.29,
+  "cheese sticks (single)": 1.29,
+  "cheese sticks (5 pcs)": 6.29,
+
+  // Salads
+  "side salad": 4.99,
+  "side salad (1 dressing)": 4.99,
+  "premium salad": 7.99,
+  "premium salad (2 dressing)": 7.99,
+
+  // Chicken Single Pieces & Boxes
+  "breast": 2.99,
+  "thigh": 2.49,
+  "leg": 2.39,
+  "wing": 2.29,
+  "chicken tender": 2.49,
+  "potato wedge": 0.20,
+  "dipping cup": 0.75,
+  "dipping cups": 0.75,
+  "chicken liver box": 4.99,
+  "corn dog": 2.69,
+  "egg roll": 2.69,
+  "one potato tater": 1.29,
+  "two potato tater": 2.39,
+  "crinkle fries box": 5.99,
+
+  // Chicken Tenders
+  "2 pc chicken tenders": 4.79,
+  "2 pc tenders": 4.79,
+  "3 pc chicken tenders": 6.99,
+  "3 pc tenders": 6.99,
+  "4 pc chicken tenders": 8.99,
+  "4 pc tenders": 8.99,
+  "6 pc chicken tenders": 12.99,
+  "6 pc tenders": 12.99,
+
+  // Daily Specials
+  "monday special": 8.49,
+  "tuesday special": 8.49,
+  "wednesday special": 8.49,
+  "thursday special": 8.49,
+  "friday special": 8.49,
+  "daily special": 8.49,
+  "chicken special": 7.39,
+  "tender basket special": 8.49,
+  "liver special": 7.19,
+
+  // Chicken Meals
+  "2 pc chicken dark": 5.59,
+  "2 pc chicken mix": 6.19,
+  "2 pc chicken white": 6.39,
+  "3 pc chicken dark": 7.99,
+  "3 pc chicken mix": 7.79,
+  "3 pc chicken white": 8.29,
+  "4 pc chicken dark": 9.39,
+  "4 pc chicken mix": 10.69,
+  "4 pc chicken white": 10.29,
+  "8 pc chicken dark": 20.99,
+  "8 pc chicken mix": 22.99,
+  "8 pc chicken white": 23.99,
+  "12 pc chicken dark": 28.99,
+  "12 pc chicken mix": 29.99,
+  "12 pc chicken white": 31.99
+};
+
 // Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
@@ -47,37 +153,26 @@ function getDayET() {
   }).format(new Date());
 }
 
-// Deterministic fallback for unpriced Tenderloin lines from Vapi
+// Fallback lookup: Checks MENU_PRICES table if Vapi omitted the price
 function addKnownItemPrice(line) {
   const cleanLine = line.trim().replace(/\s+/g, " ");
 
-  // Do not add a second price if Vapi already supplied one.
+  // If Vapi already attached a price ($X.XX), keep it.
   if (/\$?(\d+\.\d{2})/.test(cleanLine)) {
     return cleanLine;
   }
 
-  // Breaded Tenderloin: B.T., B.T. (ld), B.T. (pln), including QTY lines.
-  const breadedTenderloinMatch = cleanLine.match(
-    /^(?:QTY\s+(\d+)\s+)?B\.T\.(?:\s+\((?:ld|pln)\))?$/i
-  );
+  // Extract quantity (if present) and clean item name
+  const match = cleanLine.match(/^(?:QTY\s+(\d+)\s+)?(.+?)(?:\s+\((?:ld|pln)\))?$/i);
+  if (!match) return cleanLine;
 
-  if (breadedTenderloinMatch) {
-    const quantity = Number(breadedTenderloinMatch[1] || 1);
-    const price = (quantity * 6.79).toFixed(2);
+  const qty = Number(match[1] || 1);
+  const rawItemName = match[2].trim().toLowerCase();
 
-    return `${cleanLine} $${price}`;
-  }
-
-  // Grilled Tenderloin: G.T., including QTY lines.
-  const grilledTenderloinMatch = cleanLine.match(
-    /^(?:QTY\s+(\d+)\s+)?G\.T\.$/i
-  );
-
-  if (grilledTenderloinMatch) {
-    const quantity = Number(grilledTenderloinMatch[1] || 1);
-    const price = (quantity * 6.79).toFixed(2);
-
-    return `${cleanLine} $${price}`;
+  // Look up item in master menu table
+  if (MENU_PRICES[rawItemName] !== undefined) {
+    const itemTotal = (qty * MENU_PRICES[rawItemName]).toFixed(2);
+    return `${cleanLine} $${itemTotal}`;
   }
 
   return cleanLine;
@@ -204,13 +299,12 @@ app.post("/print", async (req, res) => {
         let custPhone = "N/A";
         let itemsList = [];
         let specialNotesList = [];
-        
+
         let subtotalVal = "";
         let taxVal = "";
         let totalVal = "";
 
-        // Render calculates totals from the item lines.
-        // Do not trust totals provided by Vapi.
+        // Server calculates financial totals directly from item prices
         let calculatedSubtotal = 0;
         let calculatedTaxableSubtotal = 0;
 
@@ -289,8 +383,12 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Ignore Vapi's financial totals (we calculate them directly now)
-          if (/^Subtotal/i.test(trimmedLine) || /tax/i.test(trimmedLine) || /total/i.test(trimmedLine)) {
+          // Ignore Vapi's provided financial totals (we compute them directly)
+          if (
+            /^Subtotal/i.test(trimmedLine) ||
+            /tax/i.test(trimmedLine) ||
+            /total/i.test(trimmedLine)
+          ) {
             continue;
           }
 
@@ -304,22 +402,22 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Skip source divider lines; the template rebuilds them later.
+          // Skip source divider lines
           if (/^[-=]{10,}$/.test(trimmedLine)) {
             continue;
           }
 
           // Regular food items and modifier-only lines
           const pricedLine = addKnownItemPrice(trimmedLine);
-          
-          // Add an item price to Render-calculated totals when present.
+
+          // Sum item price to server-calculated totals when present
           const itemPriceMatch = pricedLine.match(/\$(\d+\.\d{2})/);
           if (itemPriceMatch) {
             const itemAmount = Number(itemPriceMatch[1]);
 
             calculatedSubtotal += itemAmount;
 
-            // Extra Buns are tax-exempt. Other ordinary items are taxable.
+            // Extra Buns are tax-exempt. Other items are taxable.
             if (
               !/^Extra Bun$/i.test(pricedLine) &&
               !/^QTY\s+\d+\s+Extra Bun$/i.test(pricedLine)
@@ -327,7 +425,7 @@ app.post("/print", async (req, res) => {
               calculatedTaxableSubtotal += itemAmount;
             }
           }
-          
+
           const formatted = formatItemWithPrice(pricedLine);
 
           itemsList.push(
@@ -356,7 +454,7 @@ app.post("/print", async (req, res) => {
 
         const nowET = args.now_et || formatNowET();
 
-        // Calculate totals from the receipt item prices.
+        // Calculate totals directly from receipt item prices.
         const calculatedTax =
           Math.round(calculatedTaxableSubtotal * 0.07 * 100) / 100;
         const calculatedTotal =
