@@ -82,6 +82,7 @@ const MENU_PRICES = {
   "wing": 2.29,
   "chicken tender": 2.49,
   "potato wedge": 0.20,
+  "potato wedges": 0.20,
   "dipping cup": 0.75,
   "dipping cups": 0.75,
   "chicken liver box": 4.99,
@@ -102,14 +103,16 @@ const MENU_PRICES = {
   "6 pc tenders": 12.99,
 
   // Daily Specials
+  "daily special": 8.49,
+  "daily specials": 8.49,
   "monday special": 8.49,
   "tuesday special": 8.49,
   "wednesday special": 8.49,
   "thursday special": 8.49,
   "friday special": 8.49,
-  "daily special": 8.49,
   "chicken special": 7.39,
   "tender basket special": 8.49,
+  "tender basket": 8.49,
   "liver special": 7.19,
 
   // Chicken Meals
@@ -157,13 +160,16 @@ function getDayET() {
 function addKnownItemPrice(line) {
   const cleanLine = line.trim().replace(/\s+/g, " ");
 
-  // If Vapi already attached a price ($X.XX), keep it.
-  if (/\$?(\d+\.\d{2})/.test(cleanLine)) {
+  // Only consider it pre-priced if it has an explicit DOLLAR SIGN (e.g. $8.49)
+  if (/\$\d+\.\d{2}/.test(cleanLine)) {
     return cleanLine;
   }
 
+  // Remove unformatted leading numbers like "8.49 " or "$8.49 " if Vapi omitted "$"
+  const normalizedLine = cleanLine.replace(/^\$?(\d+\.\d{2})\s+/i, "");
+
   // Extract quantity (if present) and clean item name
-  const match = cleanLine.match(/^(?:QTY\s+(\d+)\s+)?(.+?)(?:\s+\((?:ld|pln)\))?$/i);
+  const match = normalizedLine.match(/^(?:QTY\s+(\d+)\s+)?(.+?)(?:\s+\((?:ld|pln)\))?$/i);
   if (!match) return cleanLine;
 
   const qty = Number(match[1] || 1);
@@ -172,7 +178,7 @@ function addKnownItemPrice(line) {
   // Look up item in master menu table
   if (MENU_PRICES[rawItemName] !== undefined) {
     const itemTotal = (qty * MENU_PRICES[rawItemName]).toFixed(2);
-    return `${cleanLine} $${itemTotal}`;
+    return `${normalizedLine} $${itemTotal}`;
   }
 
   return cleanLine;
