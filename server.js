@@ -19,7 +19,7 @@ if (!STAR_API_KEY) {
 let printQueue = [];
 
 // ======================================================
-// PRINTER CONFIGURATION (32 COLUMNS FOR TALL KITCHEN FONT)
+// PRINTER CONFIGURATION (32 COLUMNS FOR KITCHEN FONT)
 // ======================================================
 const MAX_COLS = 32;
 const DOTTED_LINE = "-".repeat(MAX_COLS);
@@ -60,52 +60,41 @@ function addKnownItemPrice(line) {
     return cleanLine;
   }
 
+  // If line already contains a price, don't append another one
+  if (/\$?(\d+\.\d{2})/.test(cleanLine)) {
+    return cleanLine;
+  }
+
   const quantity = Number(tenderloinMatch[1] || 1);
   const price = (quantity * 6.79).toFixed(2);
 
   return `${cleanLine} $${price}`;
 }
 
-// Format regular food items with right-aligned prices and modifiers
+// Format regular food items with right-aligned prices
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
 
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
 
-    let fullText = line
+    // Remove the price from the item name text
+    let mainName = line
       .replace(/\$?(\d+\.\d{2})/g, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    // Split modifiers that are part of a priced item.
-    const modifierSplit = fullText.split(/\s+([+\-].*)/);
-    let mainName = fullText;
-    let modifierText = "";
-
-    if (modifierSplit.length > 1) {
-      mainName = modifierSplit[0].trim();
-      modifierText = modifierSplit.slice(1).join("").trim();
-    }
-
     const maxNameLen = MAX_COLS - priceVal.length - 1;
-    let finalMainName = mainName;
-
     if (mainName.length > maxNameLen) {
-      finalMainName = mainName.substring(0, maxNameLen - 1) + ".";
+      mainName = mainName.substring(0, maxNameLen - 1) + ".";
     }
 
-    const spaceNeeded = MAX_COLS - finalMainName.length - priceVal.length;
+    // Exact space count needed to push priceVal to column 32 (far right)
+    const spaceNeeded = MAX_COLS - mainName.length - priceVal.length;
+    const padding = " ".repeat(Math.max(1, spaceNeeded));
 
-    let resultStr =
-      `${finalMainName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
-
-    if (modifierText) {
-      resultStr += `\n${modifierText}`;
-    }
-
-    return resultStr;
+    return `${mainName}${padding}${priceVal}`;
   }
 
   // Preserve leading "-" for receipt modifier lines such as -L,-O.
@@ -329,7 +318,8 @@ app.post("/print", async (req, res) => {
           }
 
           // Regular food items and modifier-only lines such as -L,-O.
-          // Applies addKnownItemPrice to supply missing $6.79 pricing on B.T. lines.
+          // Applies addKnownItemPrice to supply missing $6.79 pricing on B.T. lines,
+          // then formats with right-aligned pricing across 32 columns.
           const formatted = formatItemWithPrice(
             addKnownItemPrice(trimmedLine)
           );
