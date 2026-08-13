@@ -47,6 +47,25 @@ function getDayET() {
   }).format(new Date());
 }
 
+// Deterministic fallback for unpriced Breaded Tenderloin lines from Vapi
+function addKnownItemPrice(line) {
+  const cleanLine = line.trim().replace(/\s+/g, " ");
+
+  // Breaded Tenderloin: loaded, plain, or no label.
+  const tenderloinMatch = cleanLine.match(
+    /^(?:QTY\s+(\d+)\s+)?B\.T\.(?:\s+\((?:ld|pln)\))?$/i
+  );
+
+  if (!tenderloinMatch) {
+    return cleanLine;
+  }
+
+  const quantity = Number(tenderloinMatch[1] || 1);
+  const price = (quantity * 6.79).toFixed(2);
+
+  return `${cleanLine} $${price}`;
+}
+
 // Format regular food items with right-aligned prices and modifiers
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
@@ -89,9 +108,7 @@ function formatItemWithPrice(line) {
     return resultStr;
   }
 
-  // IMPORTANT:
   // Preserve leading "-" for receipt modifier lines such as -L,-O.
-  // The prior version included "\-" here, which converted -L,-O into L,-O.
   return line.replace(/^[\*\s]+/g, "").trim();
 }
 
@@ -312,7 +329,10 @@ app.post("/print", async (req, res) => {
           }
 
           // Regular food items and modifier-only lines such as -L,-O.
-          const formatted = formatItemWithPrice(trimmedLine);
+          // Applies addKnownItemPrice to supply missing $6.79 pricing on B.T. lines.
+          const formatted = formatItemWithPrice(
+            addKnownItemPrice(trimmedLine)
+          );
 
           itemsList.push(
             `[bold: on][mag: h 2]${formatted}[mag][bold: off]`
