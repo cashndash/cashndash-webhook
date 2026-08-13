@@ -390,6 +390,21 @@ ${totalsMarkup}
 [buzzer]
 [cut]`;
 
+        // Check that Render environment variables are available.
+        if (!STAR_ENDPOINT || !STAR_API_KEY) {
+          console.error("Missing Star configuration:", {
+            hasStarEndpoint: Boolean(STAR_ENDPOINT),
+            hasStarApiKey: Boolean(STAR_API_KEY)
+          });
+
+          results.push({
+            toolCallId,
+            result: "printer_configuration_missing"
+          });
+
+          continue;
+        }
+
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
 
