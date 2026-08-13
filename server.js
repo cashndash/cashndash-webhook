@@ -37,6 +37,7 @@ const MENU_PRICES = {
   "codfish": 5.89,
   "dixie cod fish sandwich": 5.89,
   "chicken patty": 5.99,
+  "chicken sandwich": 5.99,
   "chicken club": 6.99,
   "blt": 5.49,
   "grilled cheese sandwich": 3.99,
@@ -55,15 +56,33 @@ const MENU_PRICES = {
   "cheese": 0.50,
   "extra bacon": 2.00,
   "extra bacon(2 pieces)": 2.00,
+  "extra bun": 1.00,
 
   // Drinks & Wedges
   "32oz fountain drink": 1.87,
   "32 oz fountain drink": 1.87,
+  "20oz fountain drink": 1.29,
+  "20 oz fountain drink": 1.29,
+  "16oz fountain drink": 1.19,
+  "16 oz fountain drink": 1.19,
   "fountain drink": 1.87,
   "potato wedge": 0.20,
   "potato wedges": 0.20,
   "5 potato wedges": 1.00,
   "8 potato wedges": 1.60,
+
+  // Sauces ($0.75 each)
+  "dipping cup": 0.75,
+  "dipping cups": 0.75,
+  "dipping cup (bbq)": 0.75,
+  "dipping cup (honey mustard)": 0.75,
+  "dipping cup (ranch)": 0.75,
+  "bbq": 0.75,
+  "honey mustard": 0.75,
+  "ranch": 0.75,
+  "bbq sauce": 0.75,
+  "honey mustard sauce": 0.75,
+  "ranch sauce": 0.75,
 
   // Sides
   "fries": 2.99,
@@ -75,6 +94,8 @@ const MENU_PRICES = {
   "cheese bites": 4.49,
   "cheese stick": 1.29,
   "cheese sticks": 6.29,
+  "cheese sticks (1 pc)": 1.29,
+  "cheese stick (1 pc)": 1.29,
   "cheese sticks (single)": 1.29,
   "cheese sticks (5 pcs)": 6.29,
 
@@ -90,8 +111,6 @@ const MENU_PRICES = {
   "leg": 2.39,
   "wing": 2.29,
   "chicken tender": 2.49,
-  "dipping cup": 0.75,
-  "dipping cups": 0.75,
   "chicken liver box": 4.99,
   "corn dog": 2.69,
   "egg roll": 2.69,
@@ -148,8 +167,9 @@ function formatNowET() {
 
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
-    month: "short",
-    day: "2-digit",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
@@ -258,6 +278,45 @@ function formatSummaryLine(label, amount) {
 }
 
 // ======================================================
+// DEDICATED VAPI TOOL ROUTE (/get-now-et)
+// ======================================================
+app.post("/get-now-et", (req, res) => {
+  try {
+    const toolCallList = req.body?.message?.toolCallList;
+
+    if (!Array.isArray(toolCallList) || toolCallList.length === 0) {
+      return res.status(400).json({
+        error: "Expected Vapi message.toolCallList"
+      });
+    }
+
+    const timeString =
+      `Current Eastern Time: ${formatNowET()} Eastern Time.`;
+
+    const results = toolCallList
+      .filter((tc) => tc.function?.name === "get_now_et")
+      .map((tc) => ({
+        toolCallId: tc.id,
+        result: timeString
+      }));
+
+    if (results.length === 0) {
+      return res.status(400).json({
+        error: "No get_now_et tool call found"
+      });
+    }
+
+    return res.status(200).json({ results });
+  } catch (error) {
+    console.error("get-now-et error:", error);
+
+    return res.status(500).json({
+      error: "Unable to determine current Eastern Time"
+    });
+  }
+});
+
+// ======================================================
 // MAIN VAPI WEBHOOK ROUTE (/print)
 // ======================================================
 app.post("/print", async (req, res) => {
@@ -285,12 +344,9 @@ app.post("/print", async (req, res) => {
 
     try {
       if (toolName === "get_now_et") {
-        const nowET = formatNowET();
-        const dayET = getDayET();
-
         results.push({
           toolCallId,
-          result: `Current Eastern Time: ${nowET}. Today is ${dayET}.`
+          result: `Current Eastern Time: ${formatNowET()} Eastern Time.`
         });
 
         continue;
@@ -453,9 +509,9 @@ app.post("/print", async (req, res) => {
 
             calculatedSubtotal += itemAmount;
 
+            // Extra Buns are tax-exempt. Other items are taxable.
             if (
-              !/^Extra Bun$/i.test(pricedLine) &&
-              !/^QTY\s+\d+\s+Extra Bun$/i.test(pricedLine)
+              !/extra bun/i.test(pricedLine)
             ) {
               calculatedTaxableSubtotal += itemAmount;
             }
