@@ -157,6 +157,7 @@ function getDayET() {
 }
 
 // Fallback lookup: Checks MENU_PRICES table if Vapi omitted the price
+// Fallback lookup: Checks MENU_PRICES table or keyword matching if Vapi omitted the price
 function addKnownItemPrice(line) {
   const cleanLine = line.trim().replace(/\s+/g, " ");
 
@@ -175,15 +176,28 @@ function addKnownItemPrice(line) {
   const qty = Number(match[1] || 1);
   const rawItemName = match[2].trim().toLowerCase();
 
-  // Look up item in master menu table
+  // 1. Exact match in MENU_PRICES table
   if (MENU_PRICES[rawItemName] !== undefined) {
     const itemTotal = (qty * MENU_PRICES[rawItemName]).toFixed(2);
     return `${normalizedLine} $${itemTotal}`;
   }
 
+  // 2. Keyword matching for any Daily Special or Basket variation
+  if (rawItemName.includes("special") || rawItemName.includes("basket")) {
+    let specialPrice = 8.49; // Default daily special price
+
+    if (rawItemName.includes("liver")) {
+      specialPrice = 7.19;
+    } else if (rawItemName.includes("chicken") && !rawItemName.includes("tender")) {
+      specialPrice = 7.39;
+    }
+
+    const itemTotal = (qty * specialPrice).toFixed(2);
+    return `${normalizedLine} $${itemTotal}`;
+  }
+
   return cleanLine;
 }
-
 // Format regular food items with right-aligned prices
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
