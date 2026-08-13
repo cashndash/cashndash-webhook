@@ -4,9 +4,13 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// StarIO.Online endpoint configured with your active Device Queue Token
-const STAR_ENDPOINT = "https://api.stario.online/v1/a/CASHNDASH/d/4cfe6e42/q";
+// Set both of these in Render environment variables.
+const STAR_ENDPOINT = process.env.STAR_ENDPOINT;
 const STAR_API_KEY = process.env.STAR_API_KEY;
+
+if (!STAR_ENDPOINT) {
+  console.warn("WARNING: STAR_ENDPOINT environment variable is not set.");
+}
 
 if (!STAR_API_KEY) {
   console.warn("WARNING: STAR_API_KEY environment variable is not set.");
@@ -17,13 +21,13 @@ let printQueue = [];
 // ======================================================
 // PRINTER CONFIGURATION (32 COLUMNS FOR TALL KITCHEN FONT)
 // ======================================================
-const MAX_COLS = 32; 
+const MAX_COLS = 32;
 const DOTTED_LINE = "-".repeat(MAX_COLS);
-const DOUBLE_LINE = "=".repeat(MAX_COLS);
 
 // Helper function to format Eastern Time
 function formatNowET() {
   const now = new Date();
+
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     month: "short",
@@ -35,7 +39,7 @@ function formatNowET() {
   }).format(now);
 }
 
-// Helper function to format Eastern Time Day of Week
+// Helper function to get Eastern Time day of week
 function getDayET() {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -43,19 +47,20 @@ function getDayET() {
   }).format(new Date());
 }
 
-// Format regular food items with right-aligned prices & multi-line modifiers
+// Format regular food items with right-aligned prices and modifiers
 function formatItemWithPrice(line) {
   const priceMatch = line.match(/\$?(\d+\.\d{2})/);
-  
+
   if (priceMatch) {
     const priceVal = `$${priceMatch[1]}`;
+
     let fullText = line
       .replace(/\$?(\d+\.\d{2})/g, "")
       .replace(/^[\*\s\-:]+/g, "")
       .replace(/[\*\s\-:]+$/g, "")
       .trim();
 
-    // Split on modifiers starting with - or + (e.g. "Breaded Tenderloin (pln) -P+Mayo")
+    // Split modifiers that are part of a priced item.
     const modifierSplit = fullText.split(/\s+([+\-].*)/);
     let mainName = fullText;
     let modifierText = "";
@@ -65,34 +70,39 @@ function formatItemWithPrice(line) {
       modifierText = modifierSplit.slice(1).join("").trim();
     }
 
-    // Line 1: Main Item + Price Right-Aligned
     const maxNameLen = MAX_COLS - priceVal.length - 1;
     let finalMainName = mainName;
+
     if (mainName.length > maxNameLen) {
       finalMainName = mainName.substring(0, maxNameLen - 1) + ".";
     }
 
     const spaceNeeded = MAX_COLS - finalMainName.length - priceVal.length;
-    let resultStr = `${finalMainName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
 
-    // Line 2: Modifiers printed underneath
+    let resultStr =
+      `${finalMainName}${" ".repeat(Math.max(1, spaceNeeded))}${priceVal}`;
+
     if (modifierText) {
-      resultStr += `\n  ${modifierText}`;
+      resultStr += `\n${modifierText}`;
     }
 
     return resultStr;
   }
 
-  // Fallback for lines without a price
-  return line.replace(/^[\*\s\-]+/g, "").trim();
+  // IMPORTANT:
+  // Preserve leading "-" for receipt modifier lines such as -L,-O.
+  // The prior version included "\-" here, which converted -L,-O into L,-O.
+  return line.replace(/^[\*\s]+/g, "").trim();
 }
 
 // Right-align summary lines across 32 receipt columns
 function formatSummaryLine(label, amount) {
   const spaceNeeded = MAX_COLS - label.length - amount.length;
+
   if (spaceNeeded > 0) {
     return `${label}${" ".repeat(spaceNeeded)}${amount}`;
   }
+
   return `${label} ${amount}`;
 }
 
@@ -113,6 +123,7 @@ app.post("/print", async (req, res) => {
     const toolName = tc.function?.name;
 
     let args = tc.function?.arguments ?? {};
+
     if (typeof args === "string") {
       try {
         args = JSON.parse(args);
@@ -122,6 +133,9 @@ app.post("/print", async (req, res) => {
     }
 
     try {
+      // --------------------------------------------------
+      // GET EASTERN TIME
+      // --------------------------------------------------
       if (toolName === "get_now_et") {
         const nowET = formatNowET();
         const dayET = getDayET();
@@ -134,16 +148,35 @@ app.post("/print", async (req, res) => {
         continue;
       }
 
+      // --------------------------------------------------
+      // END CALL
+      // --------------------------------------------------
       if (toolName === "end_call_now") {
-        results.push({ toolCallId, result: "Success." });
+        results.push({
+          toolCallId,
+          result: "Success."
+        });
+
         continue;
       }
 
+      // --------------------------------------------------
+      // PRINT STAR RECEIPT
+      // --------------------------------------------------
       if (toolName === "print_star_receipt") {
-        const rawMarkup = args.markup ?? args.content ?? args.text ?? args.items ?? "";
+        const rawMarkup =
+          args.markup ??
+          args.content ??
+          args.text ??
+          args.items ??
+          "";
 
         if (!rawMarkup) {
-          results.push({ toolCallId, result: "missing_markup" });
+          results.push({
+            toolCallId,
+            result: "missing_markup"
+          });
+
           continue;
         }
 
@@ -160,24 +193,35 @@ app.post("/print", async (req, res) => {
         let inBox = false;
 
         const lines = rawStr.split("\n");
+
         for (let line of lines) {
           const trimmedLine = line.trim();
-          if (!trimmedLine) continue;
 
-          // Toggle Asterisk Box status (****************************)
+          if (!trimmedLine) {
+            continue;
+          }
+
+          // Toggle special-item box status.
           if (/^\*{10,}$/.test(trimmedLine)) {
             inBox = !inBox;
-            itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
+
+            itemsList.push(
+              `[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`
+            );
+
             continue;
           }
 
-          // IF INSIDE ASTERISK BOX: Print line verbatim in Large Bold Font
+          // Print special-box content verbatim.
           if (inBox) {
-            itemsList.push(`[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`);
+            itemsList.push(
+              `[bold: on][mag: h 2]${trimmedLine}[mag][bold: off]`
+            );
+
             continue;
           }
 
-          // Filter out header/footer noise, dates, timestamps, or thank-you messages
+          // Ignore source receipt headers and footer noise.
           if (
             /Cash N Dash/i.test(trimmedLine) ||
             /Date:/i.test(trimmedLine) ||
@@ -187,80 +231,141 @@ app.post("/print", async (req, res) => {
             continue;
           }
 
-          // Parse Customer Details
-          if (/^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
-            const m = trimmedLine.match(/^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i);
+          // Customer name
+          if (
+            /^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i.test(
+              trimmedLine
+            )
+          ) {
+            const m = trimmedLine.match(
+              /^(?:Customer\s*Name|Customer|Name)\s*[:\-]\s*(.+)/i
+            );
+
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custName = m[1].replace(/[\*\s]+/g, " ").trim();
             }
-          } 
-          else if (/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(trimmedLine)) {
-            const m = trimmedLine.match(/^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i);
+
+            continue;
+          }
+
+          // Customer phone
+          if (
+            /^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i.test(
+              trimmedLine
+            )
+          ) {
+            const m = trimmedLine.match(
+              /^(?:Phone\s*Number|Phone|Cell|Tel)\s*[:\-]\s*(.+)/i
+            );
+
             if (m && m[1].trim() && !/n\/a/i.test(m[1])) {
               custPhone = m[1].replace(/[\*\s]+/g, " ").trim();
             }
+
+            continue;
           }
-          // Parse Financial Totals
-          else if (/^Subtotal/i.test(trimmedLine)) {
+
+          // Financial totals
+          if (/^Subtotal/i.test(trimmedLine)) {
             const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-            if (match) subtotalVal = `$${match[1]}`;
-          } 
-          else if (/tax/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-            if (match) taxVal = `$${match[1]}`;
-          } 
-          else if (/total/i.test(trimmedLine)) {
-            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
-            if (match) totalVal = `$${match[1]}`;
+
+            if (match) {
+              subtotalVal = `$${match[1]}`;
+            }
+
+            continue;
           }
-          // Parse Separate Special Instructions / Notes
-          else if (/^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(trimmedLine)) {
+
+          if (/tax/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
+
+            if (match) {
+              taxVal = `$${match[1]}`;
+            }
+
+            continue;
+          }
+
+          if (/total/i.test(trimmedLine)) {
+            const match = trimmedLine.match(/\$?(\d+\.\d{2})/);
+
+            if (match) {
+              totalVal = `$${match[1]}`;
+            }
+
+            continue;
+          }
+
+          // Special instructions
+          if (
+            /^(?:Special|Notes?|Instructions?|Requests?|Allergies)\s*[:\-]/i.test(
+              trimmedLine
+            )
+          ) {
             specialNotesList.push(trimmedLine);
+            continue;
           }
-          // Parse Regular Food Items
-          else {
-            const formatted = formatItemWithPrice(trimmedLine);
-            itemsList.push(`[bold: on][mag: h 2]${formatted}[mag][bold: off]`);
+
+          // Skip source divider lines; the template rebuilds them later.
+          if (/^[-=]{10,}$/.test(trimmedLine)) {
+            continue;
           }
+
+          // Regular food items and modifier-only lines such as -L,-O.
+          const formatted = formatItemWithPrice(trimmedLine);
+
+          itemsList.push(
+            `[bold: on][mag: h 2]${formatted}[mag][bold: off]`
+          );
         }
 
-        const customerInfoStr = `Customer Name: ${custName}\nPhone Number: ${custPhone}`;
+        const customerInfoStr =
+          `Customer Name: ${custName}\n` +
+          `Phone Number: ${custPhone}`;
 
-        const formattedItemsStr = itemsList.length > 0 
-          ? itemsList.join("\n") 
-          : "[bold: on][mag: h 2]No Items Detected[mag][bold: off]";
+        const formattedItemsStr =
+          itemsList.length > 0
+            ? itemsList.join("\n")
+            : "[bold: on][mag: h 2]No Items Detected[mag][bold: off]";
 
-        // Build Special Notes Block if explicitly passed separately
         let specialMarkup = "";
+
         if (specialNotesList.length > 0) {
-          specialMarkup = 
+          specialMarkup =
 `[bold: on][mag: h 2]${DOTTED_LINE}[mag][bold: off]
 [bold: on][mag: h 2]SPECIAL INSTRUCTIONS:[mag][bold: off]
 [bold: on][mag: h 2]${specialNotesList.join("\n")}[mag][bold: off]
 `;
         }
 
-        const now_et = args.now_et || formatNowET();
+        const nowET = args.now_et || formatNowET();
 
-        // FINANCIAL BLOCK
-        let totalsMarkup = `--------------------------------\n`;
+        let totalsMarkup = "--------------------------------\n";
+
         if (subtotalVal) {
-          totalsMarkup += `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
-        }
-        if (taxVal) {
-          totalsMarkup += `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
-        }
-        totalsMarkup += `================================\n`;
-        if (totalVal) {
-          totalsMarkup += `[bold: on][mag: w 1; h 2]${formatSummaryLine("TOTAL:", totalVal)}[mag][bold: off]\n`;
+          totalsMarkup +=
+            `[bold: on]${formatSummaryLine("Subtotal:", subtotalVal)}[bold: off]\n`;
         }
 
-        // RECEIPT TEMPLATE WITH BUZZER
-        const formattedMarkup = 
+        if (taxVal) {
+          totalsMarkup +=
+            `[bold: on]${formatSummaryLine("Sales Tax:", taxVal)}[bold: off]\n`;
+        }
+
+        totalsMarkup += "================================\n";
+
+        if (totalVal) {
+          totalsMarkup +=
+            `[bold: on][mag: w 1; h 2]` +
+            `${formatSummaryLine("TOTAL:", totalVal)}` +
+            `[mag][bold: off]\n`;
+        }
+
+        const formattedMarkup =
 `[align: center]
 [bold: on][mag: w 2; h 2]Cash N Dash[mag][bold: off]
 512 WILLOW ST | VINCENNES, IN 47591
-812-882-6102 | ${now_et} ET
+812-882-6102 | ${nowET} ET
 [align: left]
 --------------------------------
 [bold: on]CUSTOMER DETAILS:[bold: off]
@@ -304,20 +409,36 @@ ${totalsMarkup}
 
         if (!response.ok) {
           console.error("StarIO Error:", response.status, starText);
-          results.push({ toolCallId, result: `star_error_${response.status}` });
+
+          results.push({
+            toolCallId,
+            result: `star_error_${response.status}`
+          });
         } else {
           console.log("Job printed via StarIO!");
-          results.push({ toolCallId, result: "printed" });
+
+          results.push({
+            toolCallId,
+            result: "printed"
+          });
         }
+
         continue;
       }
 
-      results.push({ toolCallId, result: `unknown_tool_${toolName}` });
-    } catch (err) {
-      console.error(`Error processing toolCallId ${toolCallId}:`, err);
       results.push({
         toolCallId,
-        result: err?.name === "AbortError" ? "printer_timeout" : "server_error"
+        result: `unknown_tool_${toolName}`
+      });
+    } catch (err) {
+      console.error(`Error processing toolCallId ${toolCallId}:`, err);
+
+      results.push({
+        toolCallId,
+        result:
+          err?.name === "AbortError"
+            ? "printer_timeout"
+            : "server_error"
       });
     }
   }
@@ -327,9 +448,12 @@ ${totalsMarkup}
 
 app.get("/clear", (_req, res) => {
   const count = printQueue.length;
+
   printQueue = [];
+
   console.log(`Manual clear executed. Cleared ${count} pending jobs.`);
-  res.status(200).send(`Queue cleared! Removed ${count} pending jobs.`);
+
+  res.send(`Queue cleared! Removed ${count} pending jobs.`);
 });
 
 app.get("/", (_req, res) => {
@@ -337,4 +461,7 @@ app.get("/", (_req, res) => {
 });
 
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log(`Cash N Dash Webhook running on port ${port}`));
+
+app.listen(port, () => {
+  console.log(`Cash N Dash Webhook running on port ${port}`);
+});
